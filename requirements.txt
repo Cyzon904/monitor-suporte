@@ -4,5 +4,6 @@ pandas
 plotly
 XlsxWriter
 pymongo
-nidecode
+unidecode
+
 
