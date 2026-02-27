@@ -163,10 +163,10 @@ with c_opcoes:
     st.write("")
     incluir_transferidas = st.checkbox("Incluir ligações transferidas no cálculo da meta", value=False)
 
-# Autogeração inteligente da escala baseada nas datas do calendário
 if "ultima_data" not in st.session_state:
     st.session_state["ultima_data"] = None
 
+# Recria a tabela limpa sempre que a data mudar
 if len(datas) == 2 and st.session_state.get("ultima_data") != datas:
     st.session_state["ultima_data"] = datas
     
@@ -174,9 +174,9 @@ if len(datas) == 2 and st.session_state.get("ultima_data") != datas:
     delta = (datas[1] - datas[0]).days + 1
     for i in range(delta):
         data_atual = datas[0] + timedelta(days=i)
-        if data_atual.weekday() < 5: # Ignora sábado e domingo
+        if data_atual.weekday() < 5: 
             nome_dia = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"][data_atual.weekday()]
-            dias_uteis.append(f"{nome_dia} ({data_atual.strftime('%d/%m')})")
+            dias_uteis.append(nome_dia) # Apenas o nome do dia, sem a data
     
     if not dias_uteis:
         dias_uteis = ["Sem dias úteis"]
@@ -190,13 +190,21 @@ if len(datas) == 2 and st.session_state.get("ultima_data") != datas:
 if "df_padrao" not in st.session_state:
     st.session_state["df_padrao"] = pd.DataFrame({"Dia": ["Segunda"], "Manhã ☎️": [""], "Tarde ☎️": [""]})
 
-st.caption("A tabela abaixo cresceu automaticamente de acordo com o calendário. Preencha a escala da equipe INTEIRA para o cálculo da meta ser o mesmo do seu coordenador.")
+st.caption("A tabela abaixo cresceu automaticamente de acordo com o calendário. Preencha a escala da equipe INTEIRA para o cálculo da meta ser preciso.")
 
 escala_editada = st.data_editor(
     st.session_state["df_padrao"], 
     use_container_width=True, 
     hide_index=True,
-    num_rows="dynamic"
+    num_rows="dynamic",
+    column_config={
+        "Dia": st.column_config.SelectboxColumn(
+            "Dia da Semana",
+            help="Selecione o dia",
+            options=["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"],
+            required=True
+        )
+    }
 )
 
 gerar_relatorio = st.button("🚀 Buscar Histórico e Calcular Produtividade", type="primary", use_container_width=True)
