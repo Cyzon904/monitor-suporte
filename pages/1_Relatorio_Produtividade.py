@@ -11,13 +11,11 @@ st.set_page_config(page_title="Relatório de Telefonia", page_icon="📞", layou
 if not check_password():
     st.stop()
 
-st.title("📞 Relatório de Telefonia e Produtividade")
-st.markdown("Preencha a escala para descobrir a meta dinâmica baseada no volume real de ligações.")
+st.title("📞 Relatório de Telefonia e Escala")
+st.markdown("Preencha a escala, acompanhe o volume de ligações e a média de produtividade de cada analista.")
 
-# Fuso horário de Brasília
 FUSO_BR = timezone(timedelta(hours=-3))
 
-# --- MAPEAMENTO AIRCALL ---
 AGENTS_MAP = {
     "rhayslla.junca@produttivo.com.br": "5281911",
     "douglas.david@produttivo.com.br": "5586698",
@@ -152,18 +150,21 @@ def buscar_dados_aircall_detalhados(ts_inicio, ts_fim):
 
 
 # =====================================================================
-# 1. ÁREA DE CONFIGURAÇÃO (ESCALA)
+# 1. ÁREA DE CONFIGURAÇÃO E FILTROS
 # =====================================================================
-st.markdown("---")
+st.markdown("===")
 st.subheader("🗓️ 1. Configurar Escala")
 
-c_filtro, _ = st.columns([1, 2])
+c_filtro, c_opcoes = st.columns([1, 2])
 with c_filtro:
     datas = st.date_input("📅 Período de Análise", [datetime.today() - timedelta(days=7), datetime.today()])
+with c_opcoes:
+    st.write("")
+    st.write("")
+    incluir_transferidas = st.checkbox("Incluir ligações transferidas no cálculo da meta", value=False)
 
 st.caption("Preencha a escala abaixo com os primeiros nomes dos analistas (Ex: Aline, Heloisa). Use vírgula ou 'e' para separar os nomes. **Adicione ou remova linhas usando o ícone '+' na tabela.**")
 
-# Deixei os dias da semana limpos como padrão
 if "escala_df" not in st.session_state:
     st.session_state["escala_df"] = pd.DataFrame({
         "Dia": ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"],
@@ -171,7 +172,6 @@ if "escala_df" not in st.session_state:
         "Tarde ☎️": ["", "", "", "", ""]
     })
 
-# Transformamos a coluna "Dia" num menu suspenso com as opções prontas
 escala_editada = st.data_editor(
     st.session_state["escala_df"], 
     use_container_width=True, 
@@ -188,7 +188,8 @@ escala_editada = st.data_editor(
 )
 
 gerar_relatorio = st.button("🚀 Buscar Histórico e Calcular Produtividade", type="primary", use_container_width=True)
-st.markdown("---")
+
+st.markdown("===")
 
 if 'dados_busca' not in st.session_state:
     st.session_state['dados_busca'] = None
@@ -203,16 +204,16 @@ if gerar_relatorio:
         with st.spinner("Buscando histórico e analisando métricas..."):
             stats_aircall = buscar_dados_aircall_detalhados(ts_start, ts_end)
             admins = get_admin_details()
-            st.session_state['dados_busca'] = (stats_aircall, admins, escala_editada)
+            st.session_state['dados_busca'] = (stats_aircall, admins, escala_editada, incluir_transferidas)
 
 
 # =====================================================================
 # 2. ÁREA DE RESULTADOS (PROCESSAMENTO)
 # =====================================================================
 if st.session_state['dados_busca']:
-    stats_aircall, admins, escala = st.session_state['dados_busca']
+    stats_aircall, admins, escala, flag_transferidas = st.session_state['dados_busca']
     
-    # 2.1 LÓGICA DE LEITURA DA ESCALA
+    # Lógica de leitura da escala
     turnos_calculados = {adm_id: 0 for adm_id in AGENTS_MAP.values()}
     
     def limpar_texto(texto):
@@ -235,30 +236,34 @@ if st.session_state['dados_busca']:
                     turnos_calculados[adm_id] += 1
                     break 
     
-    # 2.2 CÁLCULO DA META DINÂMICA GERAL
+    # Cálculo da Meta Dinâmica Geral
     total_ligacoes_equipe = 0
     total_turnos_equipe = sum(turnos_calculados.values())
     
     for stats in stats_aircall.values():
-        total_ligacoes_equipe += stats["inbound"] + stats["outbound"]
+        total_agente = stats["inbound"] + stats["outbound"]
+        if flag_transferidas:
+            total_agente += stats["transferidas"]
+        total_ligacoes_equipe += total_agente
         
-    # A Mágica: Qual é a média de ligações que cai em 1 único turno?
     meta_justa_por_turno = total_ligacoes_equipe / total_turnos_equipe if total_turnos_equipe > 0 else 0
 
-    # 2.3 PREPARAÇÃO DOS DADOS FINAIS
+    # Preparação dos Dados Finais
     tabela_dados = []
     
     for adm_id, stats in stats_aircall.items():
         nome = admins.get(adm_id, f"ID {adm_id}")
         inb = stats["inbound"]
         outb = stats["outbound"]
-        total_atendidas = inb + outb
-        turnos_agente = turnos_calculados[adm_id]
+        transf = stats["transferidas"]
         
-        # Meta do agente baseada nos dias que ele trabalhou
+        total_atendidas = inb + outb
+        if flag_transferidas:
+            total_atendidas += transf
+            
+        turnos_agente = turnos_calculados[adm_id]
         meta_individual = meta_justa_por_turno * turnos_agente
         
-        # Avaliação de Desempenho
         if turnos_agente > 0:
             if total_atendidas >= meta_individual:
                 situacao = "✅ Acima da média"
@@ -271,11 +276,11 @@ if st.session_state['dados_busca']:
             "Agente": nome,
             "Turnos Escalados": turnos_agente,
             "Realizado": total_atendidas,
-            "Meta Esperada": float(f"{meta_individual:.1f}"), # Formata com 1 casa decimal
+            "Meta Esperada": float(f"{meta_individual:.1f}"), 
             "Situação": situacao,
             "📥 Inbound": inb,
             "📤 Outbound": outb,
-            "🔄 Transferidas": stats["transferidas"]
+            "🔄 Transferidas": transf
         })
 
     if tabela_dados:
@@ -283,13 +288,16 @@ if st.session_state['dados_busca']:
         
         st.subheader("🏆 Análise de Produtividade Justa")
         
-        # Exibe um resumo matemático no topo para transparência com a equipe
         c1, c2, c3 = st.columns(3)
         c1.metric("Total de Ligações do Time", total_ligacoes_equipe)
         c2.metric("Total de Turnos na Escala", total_turnos_equipe)
         c3.metric("Média de Ligações por Turno", f"{meta_justa_por_turno:.1f}")
         
-        st.markdown("A **Meta Esperada** na tabela abaixo é calculada multiplicando a *Média de Ligações por Turno* pela quantidade de *Turnos Escalados* de cada agente.")
+        aviso_meta = "A **Meta Esperada** na tabela abaixo é calculada multiplicando a *Média de Ligações por Turno* pela quantidade de *Turnos Escalados* de cada agente."
+        if flag_transferidas:
+            aviso_meta += " **(Nota: As transferências foram contabilizadas nesta métrica).**"
+            
+        st.markdown(aviso_meta)
         
         st.dataframe(
             df_resultado.sort_values(by="Realizado", ascending=False),
@@ -297,8 +305,7 @@ if st.session_state['dados_busca']:
             hide_index=True
         )
 
-        # 2.4 EXIBIÇÃO DOS DETALHES POR AGENTE
-        st.markdown("---")
+        st.markdown("===")
         st.subheader("🔎 Detalhamento de Ligações por Agente")
         
         for adm_id, stats in stats_aircall.items():
