@@ -61,7 +61,6 @@ def buscar_dados_aircall_detalhados(ts_inicio, ts_fim):
     url = "https://api.aircall.io/v1/calls"
     auth = HTTPBasicAuth(st.secrets["AIRCALL_ID"], st.secrets["AIRCALL_TOKEN"])
     
-    # REMOVIDO o "direction": "inbound" para puxar as chamadas Feitas e Recebidas
     params = {
         "from": ts_inicio,
         "to": ts_fim,
@@ -115,9 +114,10 @@ def buscar_dados_aircall_detalhados(ts_inicio, ts_fim):
                     elif transferred_to.get('number'):
                         destino = transferred_to.get('number')
                 
-                # Coleta Direção e Duração
-                direcao = call.get('direction', 'inbound') # inbound ou outbound
+                # Coleta Direção, Duração e o Número de Telefone
+                direcao = call.get('direction', 'inbound') 
                 duracao = call.get('duration', 0)
+                numero_telefone = call.get('raw_digits', 'Desconhecido') # Pega o número do cliente
                 
                 link_gravacao = f"https://assets.aircall.io/calls/{call['id']}/recording"
                 ts_ligacao = call.get('started_at', 0)
@@ -129,6 +129,7 @@ def buscar_dados_aircall_detalhados(ts_inicio, ts_fim):
                     stats_por_id[adm_id]["destinos"].append(destino)
                     stats_por_id[adm_id]["detalhes"].append({
                         "Data_Timestamp": ts_ligacao, 
+                        "Telefone": numero_telefone, # <-- Inserido aqui
                         "Ação": "🔄 Transferiu",
                         "Direção": "Entrada (In)" if direcao == 'inbound' else "Saída (Out)",
                         "Duração": formatar_segundos(duracao),
@@ -153,6 +154,7 @@ def buscar_dados_aircall_detalhados(ts_inicio, ts_fim):
 
                     stats_por_id[adm_id]["detalhes"].append({
                         "Data_Timestamp": ts_ligacao, 
+                        "Telefone": numero_telefone, # <-- Inserido aqui
                         "Ação": acao_str,
                         "Direção": dir_str,
                         "Duração": formatar_segundos(duracao),
@@ -195,7 +197,6 @@ if gerar_relatorio:
         
         tabela_dados = []
         
-        # Variáveis globais para o topo da tela
         geral_inbound = 0
         geral_outbound = 0
         geral_transferidas = 0
@@ -204,7 +205,6 @@ if gerar_relatorio:
         for adm_id, stats in stats_aircall.items():
             nome = admins.get(adm_id, f"ID {adm_id}")
             
-            # Formata os destinos
             destinos_lista = stats["destinos"]
             destinos_formatados = "-"
             
@@ -213,7 +213,6 @@ if gerar_relatorio:
                 textos = [f"{dest} ({qtd}x)" for dest, qtd in contagem_destinos.items()]
                 destinos_formatados = ", ".join(textos)
             
-            # Matemáticas Individuais
             inb = stats["inbound"]
             outb = stats["outbound"]
             transf = stats["transferidas"]
@@ -221,13 +220,11 @@ if gerar_relatorio:
             
             total_atendidas = inb + outb
             
-            # Cálculo do tempo médio (em segundos)
             if total_atendidas > 0:
                 tempo_medio = duracao_total_agente / total_atendidas
             else:
                 tempo_medio = 0
             
-            # Soma nos totais gerais
             geral_inbound += inb
             geral_outbound += outb
             geral_transferidas += transf
@@ -246,7 +243,6 @@ if gerar_relatorio:
         if tabela_dados:
             df_geral = pd.DataFrame(tabela_dados)
             
-            # 1. EXIBIÇÃO DOS CARDS GERAIS (TOPO)
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Total Inbound (Recebidas)", geral_inbound)
             c2.metric("Total Outbound (Feitas)", geral_outbound)
@@ -257,25 +253,21 @@ if gerar_relatorio:
             c4.metric("Tempo Médio da Equipe", formatar_segundos(geral_media))
             
             st.markdown("### 👥 Produtividade por Agente")
-            # Ordena pelo maior número de Inbound, seguido de Outbound
             df_geral = df_geral.sort_values(by=["📥 Inbound", "📤 Outbound"], ascending=[False, False])
             st.dataframe(df_geral, use_container_width=True, hide_index=True)
             
-            # 2. EXIBIÇÃO DOS DETALHES POR AGENTE
             st.markdown("---")
             st.subheader("🔎 Detalhamento de Ligações por Agente")
             
             for adm_id, stats in stats_aircall.items():
                 total_interacoes = stats["inbound"] + stats["outbound"] + stats["transferidas"]
                 
-                # Só mostra agentes que tiveram alguma atividade no período
                 if total_interacoes > 0:
                     nome = admins.get(adm_id, f"ID {adm_id}")
                     
                     with st.expander(f"👤 {nome} (Total: {total_interacoes} interações)"):
                         detalhes = stats["detalhes"]
                         
-                        # Formata a data
                         for d in detalhes:
                             if d["Data_Timestamp"] > 0:
                                 dt_obj = datetime.fromtimestamp(d["Data_Timestamp"], tz=FUSO_BR)
@@ -284,14 +276,12 @@ if gerar_relatorio:
                                 d["Data/Hora"] = "Desconhecido"
                         
                         df_detalhes = pd.DataFrame(detalhes)
-                        # Ordena da ligação mais recente para a mais antiga
                         df_detalhes = df_detalhes.sort_values(by="Data_Timestamp", ascending=False)
                         
-                        # Removemos o timestamp (usado só para ordenar)
                         df_detalhes = df_detalhes.drop(columns=["Data_Timestamp"])
                         
-                        # Organiza as colunas de forma limpa
-                        df_detalhes = df_detalhes[["Data/Hora", "Ação", "Direção", "Duração", "Destino", "Link"]]
+                        # Adicionamos a coluna "Telefone" na visualização final
+                        df_detalhes = df_detalhes[["Data/Hora", "Telefone", "Ação", "Direção", "Duração", "Destino", "Link"]]
                         
                         st.dataframe(
                             df_detalhes,
