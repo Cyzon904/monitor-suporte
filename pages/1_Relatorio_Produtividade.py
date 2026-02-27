@@ -12,7 +12,7 @@ if not check_password():
     st.stop()
 
 st.title("📞 Relatório de Telefonia e Escala")
-st.markdown("Preencha a escala, acompanhe o volume de ligações e a média de produtividade de cada analista.")
+st.markdown("Preencha a escala completa do período para descobrir a meta exata de cada analista.")
 
 FUSO_BR = timezone(timedelta(hours=-3))
 
@@ -163,28 +163,40 @@ with c_opcoes:
     st.write("")
     incluir_transferidas = st.checkbox("Incluir ligações transferidas no cálculo da meta", value=False)
 
-st.caption("Preencha a escala abaixo com os primeiros nomes dos analistas (Ex: Aline, Heloisa). Use vírgula ou 'e' para separar os nomes. **Adicione ou remova linhas usando o ícone '+' na tabela.**")
+# Autogeração inteligente da escala baseada nas datas do calendário
+if "ultima_data" not in st.session_state:
+    st.session_state["ultima_data"] = None
 
-if "escala_df" not in st.session_state:
-    st.session_state["escala_df"] = pd.DataFrame({
-        "Dia": ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"],
-        "Manhã ☎️": ["", "", "", "", ""],
-        "Tarde ☎️": ["", "", "", "", ""]
+if len(datas) == 2 and st.session_state.get("ultima_data") != datas:
+    st.session_state["ultima_data"] = datas
+    
+    dias_uteis = []
+    delta = (datas[1] - datas[0]).days + 1
+    for i in range(delta):
+        data_atual = datas[0] + timedelta(days=i)
+        if data_atual.weekday() < 5: # Ignora sábado e domingo
+            nome_dia = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"][data_atual.weekday()]
+            dias_uteis.append(f"{nome_dia} ({data_atual.strftime('%d/%m')})")
+    
+    if not dias_uteis:
+        dias_uteis = ["Sem dias úteis"]
+        
+    st.session_state["df_padrao"] = pd.DataFrame({
+        "Dia": dias_uteis,
+        "Manhã ☎️": [""] * len(dias_uteis),
+        "Tarde ☎️": [""] * len(dias_uteis)
     })
 
+if "df_padrao" not in st.session_state:
+    st.session_state["df_padrao"] = pd.DataFrame({"Dia": ["Segunda"], "Manhã ☎️": [""], "Tarde ☎️": [""]})
+
+st.caption("A tabela abaixo cresceu automaticamente de acordo com o calendário. Preencha a escala da equipe INTEIRA para o cálculo da meta ser o mesmo do seu coordenador.")
+
 escala_editada = st.data_editor(
-    st.session_state["escala_df"], 
+    st.session_state["df_padrao"], 
     use_container_width=True, 
     hide_index=True,
-    num_rows="dynamic",
-    column_config={
-        "Dia": st.column_config.SelectboxColumn(
-            "Dia da Semana",
-            help="Selecione o dia",
-            options=["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"],
-            required=True
-        )
-    }
+    num_rows="dynamic"
 )
 
 gerar_relatorio = st.button("🚀 Buscar Histórico e Calcular Produtividade", type="primary", use_container_width=True)
@@ -211,9 +223,13 @@ if gerar_relatorio:
 # 2. ÁREA DE RESULTADOS (PROCESSAMENTO)
 # =====================================================================
 if st.session_state['dados_busca']:
-    stats_aircall, admins, escala, flag_transferidas = st.session_state['dados_busca']
+    dados_memoria = st.session_state['dados_busca']
+    if len(dados_memoria) == 3:
+        stats_aircall, admins, escala = dados_memoria
+        flag_transferidas = False 
+    else:
+        stats_aircall, admins, escala, flag_transferidas = dados_memoria
     
-    # Lógica de leitura da escala
     turnos_calculados = {adm_id: 0 for adm_id in AGENTS_MAP.values()}
     
     def limpar_texto(texto):
@@ -236,7 +252,6 @@ if st.session_state['dados_busca']:
                     turnos_calculados[adm_id] += 1
                     break 
     
-    # Cálculo da Meta Dinâmica Geral
     total_ligacoes_equipe = 0
     total_turnos_equipe = sum(turnos_calculados.values())
     
@@ -248,7 +263,6 @@ if st.session_state['dados_busca']:
         
     meta_justa_por_turno = total_ligacoes_equipe / total_turnos_equipe if total_turnos_equipe > 0 else 0
 
-    # Preparação dos Dados Finais
     tabela_dados = []
     
     for adm_id, stats in stats_aircall.items():
