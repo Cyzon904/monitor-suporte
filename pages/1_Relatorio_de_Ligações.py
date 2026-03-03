@@ -3,6 +3,7 @@ import pandas as pd
 import requests
 from requests.auth import HTTPBasicAuth
 from datetime import datetime, timezone, timedelta
+import io
 from utils import check_password, make_api_request
 
 st.set_page_config(page_title="Relatório de Telefonia", page_icon="📞", layout="wide")
@@ -10,7 +11,7 @@ st.set_page_config(page_title="Relatório de Telefonia", page_icon="📞", layou
 if not check_password():
     st.stop()
 
-st.title("📞 Relatório de Telefonia da Equipe")
+st.title("📞 Relatório de Ligações (Aircall")
 st.markdown("Acompanhe o volume de ligações (Inbound/Outbound), tempo de conversação e transferências.")
 
 # Fuso horário de Brasília
@@ -69,7 +70,6 @@ def buscar_dados_aircall_detalhados(ts_inicio, ts_fim):
         "per_page": 50
     }
     
-    # Estrutura preparada para receber tempo e direções separadas
     stats_por_id = {
         adm_id: {
             "inbound": 0, 
@@ -115,7 +115,6 @@ def buscar_dados_aircall_detalhados(ts_inicio, ts_fim):
                     elif transferred_to.get('number'):
                         destino = transferred_to.get('number')
                 
-                # Coleta Direção, Duração e o Número de Telefone
                 direcao = call.get('direction', 'inbound') 
                 duracao = call.get('duration', 0)
                 numero_telefone = call.get('raw_digits', 'Desconhecido') 
@@ -123,7 +122,6 @@ def buscar_dados_aircall_detalhados(ts_inicio, ts_fim):
                 link_gravacao = f"https://assets.aircall.io/calls/{call['id']}/recording"
                 ts_ligacao = call.get('started_at', 0)
                 
-                # Regra A: Se alguém do nosso time TRANSFERIU a ligação
                 if transf_by_email in AGENTS_MAP:
                     adm_id = AGENTS_MAP[transf_by_email]
                     stats_por_id[adm_id]["transferidas"] += 1
@@ -138,7 +136,6 @@ def buscar_dados_aircall_detalhados(ts_inicio, ts_fim):
                         "Link": link_gravacao
                     })
                 
-                # Regra B: Se alguém do nosso time é o dono final (atendeu ou realizou)
                 if user_email in AGENTS_MAP:
                     adm_id = AGENTS_MAP[user_email]
                     
@@ -197,6 +194,7 @@ if gerar_relatorio:
         admins = get_admin_details()
         
         tabela_dados = []
+        lista_detalhes_export = []
         
         geral_inbound = 0
         geral_outbound = 0
@@ -206,6 +204,7 @@ if gerar_relatorio:
         for adm_id, stats in stats_aircall.items():
             nome = admins.get(adm_id, f"ID {adm_id}")
             
+            # --- Prepara os dados para a tabela geral ---
             destinos_lista = stats["destinos"]
             destinos_formatados = "-"
             
@@ -240,10 +239,41 @@ if gerar_relatorio:
                 "⏳ Tempo Médio": formatar_segundos(tempo_medio),
                 "🎯 Transferiu para": destinos_formatados
             })
+            
+            # --- Prepara os dados brutos para o Excel ---
+            for d in stats["detalhes"]:
+                dt_str = "Desconhecido"
+                if d["Data_Timestamp"] > 0:
+                    dt_obj = datetime.fromtimestamp(d["Data_Timestamp"], tz=FUSO_BR)
+                    dt_str = dt_obj.strftime('%d/%m/%Y %H:%M:%S')
+                    
+                lista_detalhes_export.append({
+                    "Agente": nome,
+                    "Data/Hora": dt_str,
+                    "Telefone": d["Telefone"],
+                    "Ação": d["Ação"].replace("📥 ", "").replace("📤 ", "").replace("🔄 ", ""),
+                    "Direção": d["Direção"],
+                    "Duração": d["Duração"],
+                    "Destino": d["Destino"],
+                    "Link da Gravação": d["Link"]
+                })
 
         if tabela_dados:
             df_geral = pd.DataFrame(tabela_dados)
+            df_detalhes_geral = pd.DataFrame(lista_detalhes_export)
             
+            # Ordenar os detalhes para o Excel da mais recente para a mais antiga
+            if not df_detalhes_geral.empty:
+                df_detalhes_geral = df_detalhes_geral.sort_values(by="Data/Hora", ascending=False)
+            
+            # --- Lógica de Criação do Arquivo Excel ---
+            buffer = io.BytesIO()
+            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                df_geral.to_excel(writer, sheet_name='Resumo_Geral', index=False)
+                if not df_detalhes_geral.empty:
+                    df_detalhes_geral.to_excel(writer, sheet_name='Detalhamento', index=False)
+            
+            # --- Exibição na Tela ---
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Total Inbound (Recebidas)", geral_inbound)
             c2.metric("Total Outbound (Feitas)", geral_outbound)
@@ -252,6 +282,14 @@ if gerar_relatorio:
             geral_total_ligacoes = geral_inbound + geral_outbound
             geral_media = geral_duracao / geral_total_ligacoes if geral_total_ligacoes > 0 else 0
             c4.metric("Tempo Médio da Equipe", formatar_segundos(geral_media))
+            
+            # Botão de Download do Excel
+            st.download_button(
+                label="📥 Baixar Relatório Completo em Excel",
+                data=buffer.getvalue(),
+                file_name=f"Relatorio_Telefonia_{data_inicio.strftime('%d-%m')}_a_{data_fim.strftime('%d-%m')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
             
             st.markdown("### 👥 Produtividade por Agente")
             df_geral = df_geral.sort_values(by=["📥 Inbound", "📤 Outbound"], ascending=[False, False])
