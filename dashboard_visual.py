@@ -193,6 +193,9 @@ def get_aircall_stats(ts_inicio):
     total_perdidas = 0
     page = 1
     
+    # Colocamos o seu número principal aqui (tudo junto, sem espaços)
+    NUMERO_PRINCIPAL = "+554139060321"
+    
     while True:
         params['page'] = page
         try:
@@ -213,13 +216,16 @@ def get_aircall_stats(ts_inicio):
                 if status != 'done':
                     continue
                 
-                # --- CORREÇÃO DEFINITIVA ---
-                # A API do Aircall retorna status = 'done' para todas.
-                # O que indica que ela foi perdida (abandonada, fora do horário, etc)
-                # é a presença do campo 'missed_call_reason'.
+                # --- NOVO FILTRO DE LINHA PARA PERDIDAS ---
                 if call.get('missed_call_reason'):
-                    total_perdidas += 1
-                    continue # Já contamos a perda, pula para a próxima chamada
+                    # Pega o número interno (a linha) que recebeu a ligação
+                    linha_recebedora = call.get('number', {}).get('digits', '')
+                    
+                    # Só contabiliza a perda se tocou no número principal
+                    if linha_recebedora == NUMERO_PRINCIPAL:
+                        total_perdidas += 1
+                        
+                    continue # Já validamos a perda, pula para a próxima chamada
                     
                 emails_envolvidos = set()
                 
@@ -584,6 +590,7 @@ def atualizar_painel():
         """)
 
 atualizar_painel()
+
 
 
 
