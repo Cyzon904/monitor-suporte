@@ -193,8 +193,8 @@ def get_aircall_stats(ts_inicio):
     total_perdidas = 0
     page = 1
     
-    # Número de Atendimento
-    NUMERO_PRINCIPAL = "+554139060321"
+    # Lista com o número da URA (0320) e o número do Atendimento (0321)
+    NUMEROS_VALIDOS = ["+554139060320", "+554139060321"]
     
     while True:
         params['page'] = page
@@ -212,26 +212,29 @@ def get_aircall_stats(ts_inicio):
             for call in calls:
                 status = call.get('status', '')
                 
-                # Ignora apenas chamadas que AINDA estão rolando ('initial', 'in_progress', etc)
+                # Ignora chamadas que AINDA estão rolando
                 if status not in ['done', 'missed', 'voicemail']:
                     continue
                 
-                # 1. Pega a linha da empresa que recebeu a chamada e limpa os espaços
-                numero_obj = call.get('number')
-                linha_recebedora = ""
-                if isinstance(numero_obj, dict):
-                    linha_recebedora = numero_obj.get('digits', '').replace(" ", "")
+                # --- IDENTIFICAÇÃO DOS NÚMEROS DA CHAMADA ---
+                # Pega a linha principal que o cliente ligou inicialmente
+                num_obj = call.get('number') or {}
+                linha_recebedora = num_obj.get('digits', '').replace(" ", "") if isinstance(num_obj, dict) else ""
                 
-                # 2. Descobre se foi perdida (pelo status OU pelo motivo)
+                # Pega para onde a URA (Menu) transferiu a ligação
+                transf_obj = call.get('transferred_to') or {}
+                transferido_para = transf_obj.get('number', '').replace(" ", "") if isinstance(transf_obj, dict) else ""
+                
+                # Descobre se foi perdida (abandonou na URA, desistiu na fila, caiu na caixa postal)
                 foi_perdida = (status in ['missed', 'voicemail']) or bool(call.get('missed_call_reason'))
                 
                 if foi_perdida:
-                    # Só contabiliza se tocou no número principal
-                    if linha_recebedora == NUMERO_PRINCIPAL:
+                    # Só contabiliza se o número de entrada OU de destino for um dos nossos válidos
+                    if (linha_recebedora in NUMEROS_VALIDOS) or (transferido_para in NUMEROS_VALIDOS):
                         total_perdidas += 1
-                    continue # Já contamos a perda, pula para a próxima chamada
+                    continue # Já validamos a perda, pula para a próxima chamada
                     
-                # Se o código passou daqui, a chamada foi ATENDIDA com sucesso ('done')
+                # --- SE CHEGOU AQUI, FOI ATENDIDA ---
                 emails_envolvidos = set()
                 
                 for campo in ['user', 'transferred_by', 'transferred_to']:
@@ -248,7 +251,6 @@ def get_aircall_stats(ts_inicio):
                 if not emails_da_equipa:
                     continue 
 
-                # Soma como ligação atendida pela equipe
                 total_atendidas += 1
                 
                 for email in emails_da_equipa:
@@ -589,6 +591,7 @@ def atualizar_painel():
         """)
 
 atualizar_painel()
+
 
 
 
