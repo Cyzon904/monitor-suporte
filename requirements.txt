@@ -5,5 +5,4 @@ plotly
 XlsxWriter
 pymongo
 unidecode
-
-
+extra-streamlit-components
