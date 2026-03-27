@@ -1,119 +1,122 @@
-import streamlit as st # O arquiteto. Eu preciso dele pra acessar os 'secrets' (o cofre de senhas).
-import requests # O motoboy. É ele que leva e traz as mensagens pra API.
-import time # O relógio. Essencial pra gente saber quanto tempo esperar quando a API cansa.
+import streamlit as st
+import requests
+import time
 import pymongo
+import datetime
+import extra_streamlit_components as stx
+
+@st.cache_resource(experimental_allow_widgets=True)
+def get_cookie_manager():
+    return stx.CookieManager()
 
 def check_password():
-    """Gerencia autenticação simples via secrets."""
-    if "APP_PASSWORD" not in st.secrets: # Primeiro, eu verifico se eu mesma não esqueci de criar a senha no cofre (.streamlit/secrets.toml).
-        st.error("ERRO: Configure 'APP_PASSWORD' no arquivo .streamlit/secrets.toml")
-        return False # Se não tem senha configurada, ninguém entra.
+    """Gere a autenticacao via secrets e guarda a sessao em Cookies."""
+    if "APP_PASSWORD" not in st.secrets:
+        st.error("ERRO: Configure 'APP_PASSWORD' no ficheiro .streamlit/secrets.toml")
+        return False
 
-    def password_entered(): # Essa é uma "função dentro da função". Ela só roda quando a pessoa aperta Enter.
-        if st.session_state["password"] == st.secrets["APP_PASSWORD"]: # Eu comparo o que a pessoa digitou (st.session_state["password"]) com a senha real (st.secrets).
-            st.session_state["password_correct"] = True # Aprovada!
-            del st.session_state["password"] # Apago a senha da memória por segurança. Ninguém precisa ver.
-        else:
-            st.session_state["password_correct"] = False # Reprovada!
+    cookie_manager = get_cookie_manager()
+    senha_correta = st.secrets["APP_PASSWORD"]
 
-    if st.session_state.get("password_correct", False): # Se a pessoa JÁ logou antes (está na memória como True), eu deixo passar direto.
+    # 1. Verifica se o cookie ja esta guardado no navegador
+    if cookie_manager.get(cookie="monitor_auth") == senha_correta:
         return True
-# Se não logou ainda, mostro a caixinha pra digitar.
+
+    def password_entered():
+        if st.session_state["password"] == senha_correta:
+            st.session_state["password_correct"] = True
+            # Cria um cookie que dura 30 dias
+            validade = datetime.datetime.now() + datetime.timedelta(days=30)
+            cookie_manager.set("monitor_auth", senha_correta, expires_at=validade)
+            del st.session_state["password"]
+        else:
+            st.session_state["password_correct"] = False
+
+    if st.session_state.get("password_correct", False):
+        return True
+
     st.text_input(
-        "🔒 Digite a senha de acesso:", 
-        type="password",  # Isso transforma as letras em bolinhas ••••
-        on_change=password_entered,  # Quando der Enter, roda a função lá de cima.
-        key="password" # Guardo o que foi digitado nessa variável.
+        "🔒 Digite a palavra-passe de acesso:", 
+        type="password",
+        on_change=password_entered,
+        key="password"
     )
-    # Se ela tentou entrar e errou (password_correct é False), eu aviso.
+    
     if "password_correct" in st.session_state and not st.session_state["password_correct"]:
-        st.error("😕 Senha incorreta.")
-# Enquanto não acertar, a porta continua fechada (False).
+        st.error("😕 Palavra-passe incorreta.")
+        
     return False
 
-# O Motoboy Inteligente (make_api_request)
-#Essa é a função mais importante! Ela protege a gente de ser banida pelo Intercom.
 def make_api_request(method, url, json=None, params=None, max_retries=3):
     """
     Faz chamadas API seguras respeitando o Rate Limit do Intercom.
     Usa o header 'X-RateLimit-Reset' para espera inteligente.
-    Se o Intercom disser "PARE" (Erro 429), eu espero o tempo certo em vez de insistir.
+    Se o Intercom disser "PARE" (Erro 429), aguardamos o tempo certo em vez de insistir.
     """
-    token = st.secrets.get("INTERCOM_TOKEN", "") # Pego o meu crachá (Token) lá no cofre. Se não tiver, uso vazio "".
-    headers = { # Coloco o uniforme oficial pra API me respeitar
+    token = st.secrets.get("INTERCOM_TOKEN", "")
+    headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/json",
         "Content-Type": "application/json"
     }
-# Eu tento 3 vezes (max_retries). Se a internet piscar, eu tento de novo.
+    
     for attempt in range(max_retries):
         try:
-            if method.upper() == "POST": # Se for pra enviar dados (POST)..
+            if method.upper() == "POST":
                 response = requests.post(url, json=json, params=params, headers=headers)
-            else: # Se for só pra ler dados (GET)..
+            else:
                 response = requests.get(url, params=params, headers=headers)
             
-            if response.status_code == 200: # Se deu tudo certo (Código 200), eu devolvo o presente (os dados em JSON).
+            if response.status_code == 200:
                 return response.json()
-            # 🛑 AQUI É O PULO DO GATO! Se deu Erro 429 (Rate Limit)...
-            elif response.status_code == 429: # Rate Limit
-                # Lógica Inteligente baseada na documentação do Intercom
+            elif response.status_code == 429:
                 reset_time = response.headers.get("X-RateLimit-Reset")
                 
                 if reset_time:
                     try:
-                        wait_seconds = int(reset_time) - int(time.time()) + 1 # Calculo: Hora de liberar - Hora de agora + 1 segundinho de margem.
+                        wait_seconds = int(reset_time) - int(time.time()) + 1
                     except ValueError:
-                        wait_seconds = (2 ** attempt) + 1 # Se o cálculo der ruim, espero um pouquinho exponencialmente (2s, 4s, 8s...).
+                        wait_seconds = (2 ** attempt) + 1
                 else:
-                    # Se eles não disserem o tempo, eu chuto um tempo seguro.
                     wait_seconds = (2 ** attempt) + 1
                 
-                # Garanto que nunca vou esperar tempo negativo (o que seria viagem no tempo rs).
                 wait_seconds = max(1, wait_seconds)
-                # Aviso na tela (Toast) pro usuário não achar que travou. "Tô esperando, calma!"
                 st.toast(f"⏳ API cheia. Aguardando {wait_seconds}s para o reset...", icon="🛑")
-                time.sleep(wait_seconds) # O código dorme. Zzz...
-                continue # Acordou? Tenta de novo (volta pro começo do loop).
+                time.sleep(wait_seconds)
+                continue
             
             else:
-                # Se for outro erro bizarro (tipo 500 ou 404), eu anoto no console pra investigar depois.
                 print(f"Erro API {response.status_code}: {response.text}")
                 return None
                 
         except Exception as e:
-            print(f"Erro de Conexão: {e}") # Se a internet cair ou o computador explodir...
+            print(f"Erro de Conexao: {e}")
             return None
             
-    st.error("Falha na conexão com a API após várias tentativas.") # Se eu tentei 3 vezes e falhei em todas... desisto.
+    st.error("Falha na conexao com a API apos varias tentativas.")
     return None
-#A Fofoqueira (send_slack_alert)
-#Essa função leva as notícias pro Slack.
+
 def send_slack_alert(message):
-    """Envia notificação para o Slack se o webhook estiver configurado."""
-    # Tento pegar o endereço do Slack no cofre.
+    """Envia notificacao para o Slack se o webhook estiver configurado."""
     webhook = st.secrets.get("SLACK_WEBHOOK")
     
     if not webhook:
-        # Se eu esqueci de colocar o endereço, eu aviso no console e não faço nada.
-        print("❌ ERRO: Webhook do Slack não encontrado nos secrets.") 
+        print("❌ ERRO: Webhook do Slack nao encontrado nos secrets.") 
         return
 
-    payload = {"text": message} # Embrulho a mensagem num pacote que o Slack entende (JSON).
+    payload = {"text": message}
     
-    try: # Envio o pacote! 🚀
+    try:
         requests.post(webhook, json=payload)
-    except Exception as e: # Se o Slack estiver fora do ar, eu anoto o erro.
+    except Exception as e:
         print(f"Erro ao enviar alerta Slack: {e}")
 
-# Variável global para manter a conexão aberta (cache de conexão)
 @st.cache_resource
 def init_mongo_connection():
     """Conecta ao MongoDB Atlas usando a URI dos secrets."""
     try:
         uri = st.secrets["MONGO_URI"]
         client = pymongo.MongoClient(uri)
-        # Testa a conexão
         client.admin.command('ping')
         return client
     except Exception as e:
@@ -125,13 +128,11 @@ def salvar_lote_tickets_mongo(lista_tickets):
     client = init_mongo_connection()
     if not client: return 0
     
-    db = client["suporte_db"] # Nome do seu banco
-    collection = db["tickets"] # Nome da 'tabela'
+    db = client["suporte_db"]
+    collection = db["tickets"]
     
     operacoes = []
     for ticket in lista_tickets:
-        # UpdateOne com upsert=True: Se existe, atualiza. Se não, cria.
-        # Usamos o 'id' do Intercom como chave única
         op = pymongo.UpdateOne(
             {"id": ticket["id"]}, 
             {"$set": ticket}, 
@@ -146,8 +147,7 @@ def salvar_lote_tickets_mongo(lista_tickets):
 
 def carregar_tickets_mongo(termo_busca=None):
     """
-    Traz tickets. Se termo_busca for None, traz TODOS (limite de 1000).
-    Se tiver termo, busca por ID, ID Interno ou Nome.
+    Traz tickets. Se termo_busca for None, traz TODOS.
     """
     client = init_mongo_connection()
     if not client: return []
@@ -157,22 +157,19 @@ def carregar_tickets_mongo(termo_busca=None):
     
     filtro = {}
     
-    # Só aplica filtro se o usuário digitou algo
     if termo_busca and str(termo_busca).strip() != "":
         termo_str = str(termo_busca).strip()
         regex_busca = {"$regex": termo_str, "$options": "i"}
         
         filtro = {
             "$or": [
-                {"id_interno": termo_str},          # ID exato da empresa
-                {"cliente": regex_busca},           # Nome da empresa (Energisa...)
-                {"autor_nome": regex_busca},        # Nome do usuário
-                {"autor_email": regex_busca},       # Email
-                {"id": termo_str}                   # ID do Ticket
+                {"id_interno": termo_str},
+                {"cliente": regex_busca},
+                {"autor_nome": regex_busca},
+                {"autor_email": regex_busca},
+                {"id": termo_str}
             ]
         }
     
-    # Traz os últimos 1000 tickets para não travar a tela
     cursor = collection.find(filtro, {"_id": 0}).sort("updated_at", -1).limit(1000)
-    
     return list(cursor)
