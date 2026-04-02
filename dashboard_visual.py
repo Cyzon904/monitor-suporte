@@ -198,6 +198,11 @@ def get_aircall_stats(ts_inicio):
                 
             for call in calls:
                 status = call.get('status', '')
+                direcao = call.get('direction', '')
+                
+                # Regra nova: Ignora qualquer ligação que não seja de entrada (inbound)
+                if direcao != 'inbound':
+                    continue
                 
                 # Filtra apenas o que foi efetivamente atendido (done e sem motivo de perda)
                 if status != 'done' or bool(call.get('missed_call_reason')):
