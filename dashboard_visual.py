@@ -1,32 +1,26 @@
-import streamlit as st # O nosso "pedreiro" digital que constrói o site.
-import pandas as pd # Biblioteca poderosa para manipulação de dados em tabelas.
-import time # Para lidar com tempos e pausas.
-import re # O "faxineiro" (Regex). Ele limpa textos sujos cheios de códigos estranhos.
-import requests # Para falar com o Aircall
-from requests.auth import HTTPBasicAuth # Para autenticação do Aircall
-from datetime import datetime, timezone, timedelta # A nossa "agenda" pra lidar com datas e fusos.
-import os # Para verificar se o arquivo existe
-import json # Para salvar o horário bonitinho
+import streamlit as st 
+import pandas as pd 
+import time 
+import re 
+import requests 
+from requests.auth import HTTPBasicAuth 
+from datetime import datetime, timezone, timedelta 
+import os 
+import json 
 
-# Em vez de copiar e colar código, eu puxo as funções prontas do arquivo 'utils.py'.
 from utils import check_password, make_api_request, send_slack_alert 
 
-# Defino o nome da aba no navegador e o ícone. Layout "wide" pra usar a tela toda.
 st.set_page_config(page_title="Monitor Operacional", page_icon="🚀", layout="wide")
 
-# Chamo o porteiro (função importada). Se não tiver a senha certa, o código PARA aqui.
 if not check_password():
     st.stop()
 
-# Tento pegar o ID do App no cofre secreto (.streamlit/secrets.toml).
 try:
     APP_ID = st.secrets["INTERCOM_APP_ID"]
 except KeyError:
     st.error("❌ Erro Crítico: 'INTERCOM_APP_ID' não encontrado no secrets.toml")
     st.stop()
 
-# --- CONFIGURAÇÃO MULTI-TIMES ---
-# Substituí o TEAM_ID único por uma lista e um dicionário de nomes
 TEAMS_IDS = [2975006, 1972225] 
 
 NOMES_TIMES = {
@@ -34,10 +28,9 @@ NOMES_TIMES = {
     1972225: "Customer Success"
 }
 
-META_AGENTES = 4 # Meta mínima de agentes online
-FUSO_BR = timezone(timedelta(hours=-3)) # Fuso horário de Brasília (UTC-3)
+META_AGENTES = 4 
+FUSO_BR = timezone(timedelta(hours=-3)) 
 
-# --- MAPEAMENTO AIRCALL (Email -> ID Intercom) ---
 AGENTS_MAP = {
     "rhayslla.junca@produttivo.com.br": "5281911",
     "douglas.david@produttivo.com.br": "5586698",
@@ -48,10 +41,8 @@ AGENTS_MAP = {
     "marcelo.misugi@produttivo.com.br": "8126602"
 }
 
-# --- Funções de Busca ---
-
 @st.cache_data(ttl=60, show_spinner=False)
-def get_admin_details(): # Pega detalhes dos admins (nome, away)
+def get_admin_details(): 
     url = "https://api.intercom.io/admins" 
     data = make_api_request("GET", url)
     dados = {}
@@ -175,7 +166,7 @@ def get_aircall_stats(ts_inicio):
     """Busca chamadas Aircall e retorna: Stats por Agente, Totais e DETALHES (Link de Áudio)."""
     
     if "AIRCALL_ID" not in st.secrets or "AIRCALL_TOKEN" not in st.secrets:
-        return {}, 0, 0, {}
+        return {}, 0, {}
 
     url = "https://api.aircall.io/v1/calls"
     auth = HTTPBasicAuth(st.secrets["AIRCALL_ID"], st.secrets["AIRCALL_TOKEN"])
@@ -190,11 +181,7 @@ def get_aircall_stats(ts_inicio):
     stats_agente = {} 
     detalhes_ligacoes = {} 
     total_atendidas = 0
-    total_perdidas = 0
     page = 1
-    
-    # Lista com o número da URA (0320) e o número do Atendimento (0321)
-    NUMEROS_VALIDOS = ["+554139060320", "+554139060321"]
     
     while True:
         params['page'] = page
@@ -212,29 +199,10 @@ def get_aircall_stats(ts_inicio):
             for call in calls:
                 status = call.get('status', '')
                 
-                # Ignora chamadas que AINDA estão rolando
-                if status not in ['done', 'missed', 'voicemail']:
+                # Filtra apenas o que foi efetivamente atendido (done e sem motivo de perda)
+                if status != 'done' or bool(call.get('missed_call_reason')):
                     continue
-                
-                # --- IDENTIFICAÇÃO DOS NÚMEROS DA CHAMADA ---
-                # Pega a linha principal que o cliente ligou inicialmente
-                num_obj = call.get('number') or {}
-                linha_recebedora = num_obj.get('digits', '').replace(" ", "") if isinstance(num_obj, dict) else ""
-                
-                # Pega para onde a URA (Menu) transferiu a ligação
-                transf_obj = call.get('transferred_to') or {}
-                transferido_para = transf_obj.get('number', '').replace(" ", "") if isinstance(transf_obj, dict) else ""
-                
-                # Descobre se foi perdida (abandonou na URA, desistiu na fila, caiu na caixa postal)
-                foi_perdida = (status in ['missed', 'voicemail']) or bool(call.get('missed_call_reason'))
-                
-                if foi_perdida:
-                    # Só contabiliza se o número de entrada OU de destino for um dos nossos válidos
-                    if (linha_recebedora in NUMEROS_VALIDOS) or (transferido_para in NUMEROS_VALIDOS):
-                        total_perdidas += 1
-                    continue # Já validamos a perda, pula para a próxima chamada
                     
-                # --- SE CHEGOU AQUI, FOI ATENDIDA ---
                 emails_envolvidos = set()
                 
                 for campo in ['user', 'transferred_by', 'transferred_to']:
@@ -277,14 +245,12 @@ def get_aircall_stats(ts_inicio):
             print(f"Erro Aircall: {e}")
             break
             
-    return stats_agente, total_atendidas, total_perdidas, detalhes_ligacoes
-    
-# @st.fragment faz esse pedaço rodar sozinho a cada 60s
+    return stats_agente, total_atendidas, detalhes_ligacoes
+
 @st.fragment(run_every=60)
 def atualizar_painel():
     st.title("🚀 Monitor Operacional (Tempo Real)") 
 
-    # --- MEMÓRIA DO ALERTA ---
     if "ultimo_alerta_ts" not in st.session_state: 
         st.session_state["ultimo_alerta_ts"] = 0
 
@@ -306,10 +272,8 @@ def atualizar_painel():
         ts_inicio = int((now - timedelta(hours=48)).timestamp())
         texto_volume = "Volume (48h / 30min)"
 
-    # --- BUSCANDO DADOS (MULTI-TIMES) ---
     admins = get_admin_details()
     
-    # Variáveis Acumuladoras
     ids_time_set = set()
     fila = []
     vol_periodo = 0
@@ -319,12 +283,9 @@ def atualizar_painel():
     detalhes_agente = {}
     ultimas_temp = []
 
-    # Loop para buscar dados de TODOS os times configurados
     for t_id in TEAMS_IDS:
-        # 1. Membros
         ids_time_set.update(get_team_members(t_id))
         
-        # 2. Fila (Com carimbo de nome)
         fila_do_time = get_team_queue_details(t_id)
         nome_do_time = NOMES_TIMES.get(t_id, f"Time {t_id}")
         
@@ -333,12 +294,10 @@ def atualizar_painel():
             
         fila.extend(fila_do_time)
         
-        # 3. Estatísticas
         vp, vr, sp, sr, da = get_daily_stats(t_id, ts_inicio)
         vol_periodo += vp
         vol_rec += vr
         
-        # Mesclando dicionários (Somando valores se o agente estiver em 2 times)
         for aid, val in sp.items(): stats_periodo[aid] = stats_periodo.get(aid, 0) + val
         for aid, val in sr.items(): stats_rec[aid] = stats_rec.get(aid, 0) + val
         
@@ -346,17 +305,13 @@ def atualizar_painel():
             if aid not in detalhes_agente: detalhes_agente[aid] = []
             detalhes_agente[aid].extend(lista)
             
-        # 4. Últimas conversas
         ultimas_temp.extend(get_latest_conversations(t_id, ts_inicio, 10))
 
-    # Finalizando processamento dos dados
     ids_time = list(ids_time_set)
     ultimas = sorted(ultimas_temp, key=lambda x: x['created_at'], reverse=True)[:10]
 
-    # --- BUSCA AIRCALL ---
-    stats_aircall, total_atendidas, total_perdidas, detalhes_calls = get_aircall_stats(ts_inicio)
+    stats_aircall, total_atendidas, detalhes_calls = get_aircall_stats(ts_inicio)
     
-    # --- PROCESSAMENTO ---
     online = 0
     tabela = []
     
@@ -374,10 +329,8 @@ def atualizar_painel():
         pausados = count_conversations(mid, 'snoozed')
         volume_recente = stats_rec.get(sid, 0)
         
-        # Pega ligações do Aircall pelo ID
         ligacoes = stats_aircall.get(sid, 0)
         
-        # Regras de Alerta:
         alerta = "⚠️" if abertos >= 10 else ""
         raio = "⚡" if volume_recente >= 3 else ""
         
@@ -400,7 +353,6 @@ def atualizar_painel():
     tabela = sorted(tabela, key=lambda x: x['Agente'])
     tabela = sorted(tabela, key=lambda x: x['Status'], reverse=True)
 
-    # --- O FOFOQUEIRO INTELIGENTE (Slack Alert com Arquivo) ---
     msg_alerta = []
     
     if len(fila) > 0:
@@ -431,27 +383,23 @@ def atualizar_painel():
             pass 
 
     if msg_alerta and (agora - ultimo_envio_geral > TEMPO_RESFRIAMENTO):
-        # 1. Atualizo o arquivo PRIMEIRO para bloquear outras abas
         try:
             with open(ARQUIVO_CONTROLE, "w") as f:
                 json.dump({"timestamp": agora}, f)
         except Exception as e:
             print(f"Erro ao salvar arquivo de controle: {e}")
 
-        # 2. Envio a mensagem
         texto_final = "*🚨 Alerta Monitor Suporte*\n" + "\n".join(msg_alerta)
         send_slack_alert(texto_final)
             
         st.toast("🔔 Alerta enviado para o Slack!", icon="📨")
 
-    # --- VISUALIZAÇÃO ---
-    c1, c2, c3, c4, c5 = st.columns(5) # Agora são 5 colunas
+    c1, c2, c3, c4, c5 = st.columns(5) 
     
     c1.metric("Fila de Espera", len(fila), "Aguardando", delta_color="inverse")
     c2.metric(texto_volume, f"{vol_periodo} / {vol_rec}")
     
-    # Novo Card de Ligações
-    c3.metric("📞 Ligações (Hoje)", f"{total_atendidas}", f"{total_perdidas} perdidas", delta_color="off")
+    c3.metric("📞 Ligações (Atendidas)", f"{total_atendidas}")
     
     c4.metric("Agentes Online", online, f"Meta: {META_AGENTES}")
     c5.metric("Atualizado", datetime.now(FUSO_BR).strftime("%H:%M:%S"))
@@ -461,7 +409,6 @@ def atualizar_painel():
         links_md = ""
         for item in fila:
             c_id = item['id']
-            # Identifico o time para exibir no link
             t_nome = item.get('nome_time', 'Geral')
             
             link = f"https://app.intercom.com/a/inbox/{APP_ID}/inbox/conversation/{c_id}"
@@ -501,15 +448,12 @@ def atualizar_painel():
                 nome = admins.get(sid, {}).get('name', 'Desconhecido')
                 tickets = detalhes_agente.get(sid, [])
                 
-                # --- PEGA DADOS DAS CHAMADAS ---
                 qtd_calls = stats_aircall.get(sid, 0)
-                calls_agente = detalhes_calls.get(sid, []) # Pega a lista de links
+                calls_agente = detalhes_calls.get(sid, []) 
                 
                 with cols[i % 3]:
-                    # Título com Tickets (T) e Calls (C)
                     with st.expander(f"{nome} (T: {len(tickets)} | C: {qtd_calls})"):
                         
-                        # --- 1. LISTA DE TICKETS ---
                         if tickets:
                             st.caption("📨 **Tickets Intercom**")
                             tickets_sorted = sorted(tickets, key=lambda x: x['created_at'], reverse=True)
@@ -517,7 +461,6 @@ def atualizar_painel():
                                 hora = datetime.fromtimestamp(t['created_at'], tz=FUSO_BR).strftime('%H:%M')
                                 st.markdown(f"⏰ {hora} - [Abrir Ticket]({t['link']})")
                         
-                        # --- 2. LISTA DE LIGAÇÕES ---
                         if calls_agente:
                             if tickets: st.markdown("---") 
                             st.caption("📞 **Ligações Aircall**")
@@ -526,7 +469,6 @@ def atualizar_painel():
                             
                             for c in calls_sorted:
                                 hora = datetime.fromtimestamp(c['started_at'], tz=FUSO_BR).strftime('%H:%M')
-                                # Link direto para assets.aircall.io
                                 st.markdown(f"🎧 **{hora}** - [Ouvir Ligação]({c['link']})")
                                 
                         if not tickets and not calls_agente:
@@ -591,7 +533,6 @@ def atualizar_painel():
         """)
 
 atualizar_painel()
-
 
 
 
