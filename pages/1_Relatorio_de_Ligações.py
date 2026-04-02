@@ -14,10 +14,8 @@ if not check_password():
 st.title("📞 Relatório de Telefonia da Equipe")
 st.markdown("Acompanhe o volume de ligações (Inbound/Outbound), tempo de conversação e transferências.")
 
-# Fuso horário de Brasília
 FUSO_BR = timezone(timedelta(hours=-3))
 
-# Mapeamento Aircall (Email -> ID Intercom para pegar o nome visual)
 AGENTS_MAP = {
     "rhayslla.junca@produttivo.com.br": "5281911",
     "douglas.david@produttivo.com.br": "5586698",
@@ -28,9 +26,7 @@ AGENTS_MAP = {
     "marcelo.misugi@produttivo.com.br": "8126602"
 }
 
-# Função Auxiliar: Formatar Segundos
 def formatar_segundos(segundos):
-    """Transforma segundos em HH:MM:SS ou MM:SS"""
     if pd.isna(segundos) or segundos == 0:
         return "00:00"
     
@@ -42,7 +38,6 @@ def formatar_segundos(segundos):
         return f"{h:02d}:{m:02d}:{s:02d}"
     return f"{m:02d}:{s:02d}"
 
-# Busca de Nomes
 @st.cache_data(ttl=300, show_spinner=False)
 def get_admin_details():
     url = "https://api.intercom.io/admins" 
@@ -53,7 +48,6 @@ def get_admin_details():
             dados[str(admin['id'])] = admin['name']
     return dados
 
-# Função de Busca Aircall Detalhada
 @st.cache_data(ttl=300, show_spinner=False)
 def buscar_dados_aircall_detalhados(ts_inicio, ts_fim):
     if "AIRCALL_ID" not in st.secrets or "AIRCALL_TOKEN" not in st.secrets:
@@ -148,12 +142,16 @@ def buscar_dados_aircall_detalhados(ts_inicio, ts_fim):
                         dir_str = "Entrada (In)"
                     else:
                         stats_por_id[adm_id]["outbound"] += 1
-                        # Nova lógica para verificar se o cliente atendeu a ligação ativa
-                        if duracao > 0:
+                        
+                        # Nova regra: valida se existe o horário de atendimento e se não há motivo de perda
+                        atendida_de_fato = call.get('answered_at') is not None and not call.get('missed_call_reason')
+                        
+                        if atendida_de_fato:
                             stats_por_id[adm_id]["outbound_atendidas"] += 1
                             acao_str = "📤 Ligou (Atendida)"
                         else:
                             acao_str = "📤 Ligou (Não Atendida)"
+                        
                         dir_str = "Saída (Out)"
 
                     stats_por_id[adm_id]["detalhes"].append({
@@ -176,11 +174,9 @@ def buscar_dados_aircall_detalhados(ts_inicio, ts_fim):
             
     return stats_por_id
 
-# Inicializa a memória do relatório
 if 'dados_relatorio' not in st.session_state:
     st.session_state['dados_relatorio'] = None
 
-# Filtros de Data na Tela
 col1, col2, col3 = st.columns([1, 1, 2])
 with col1:
     data_inicio = st.date_input("Data de Início", datetime.today() - timedelta(days=7))
@@ -193,7 +189,6 @@ with col3:
 
 st.markdown("---")
 
-# Se o botão for clicado, busca os dados e salva na memória
 if gerar_relatorio:
     ts_start = int(datetime.combine(data_inicio, datetime.min.time()).timestamp())
     ts_end = int(datetime.combine(data_fim, datetime.max.time()).timestamp())
@@ -202,7 +197,6 @@ if gerar_relatorio:
         stats_aircall = buscar_dados_aircall_detalhados(ts_start, ts_end)
         admins = get_admin_details()
         
-        # Guarda tudo na memória do Streamlit
         st.session_state['dados_relatorio'] = {
             'stats_aircall': stats_aircall,
             'admins': admins,
@@ -210,7 +204,6 @@ if gerar_relatorio:
             'data_fim': data_fim
         }
 
-# Se houver dados na memória, processa e exibe a tela
 if st.session_state['dados_relatorio'] is not None:
     
     dados = st.session_state['dados_relatorio']
@@ -241,7 +234,7 @@ if st.session_state['dados_relatorio'] is not None:
         
         inb = stats["inbound"]
         outb = stats["outbound"]
-        outb_atendidas = stats["outbound_atendidas"]
+        outb_atendidas = stats.get("outbound_atendidas", 0)
         transf = stats["transferidas"]
         duracao_total_agente = stats["duracao_total"]
         
@@ -299,7 +292,6 @@ if st.session_state['dados_relatorio'] is not None:
             if not df_detalhes_geral.empty:
                 df_detalhes_geral.to_excel(writer, sheet_name='Detalhamento', index=False)
         
-        # Agora temos 5 cartões para mostrar a nova métrica no topo
         c1, c2, c3, c4, c5 = st.columns(5)
         c1.metric("Inbound (Recebidas)", geral_inbound)
         c2.metric("Outbound (Total)", geral_outbound)
