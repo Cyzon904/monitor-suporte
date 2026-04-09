@@ -168,11 +168,12 @@ if gerar_relatorio:
                     st.plotly_chart(fig_hora, use_container_width=True)
 
                 with c2:
-                    # 2. Quem atendeu em cada horário
-                    vol_agente_hora = df.groupby(['Hora', 'Agente']).size().reset_index(name='Volume')
-                    vol_agente_hora = vol_agente_hora.sort_values('Hora')
-                    fig_agente = px.bar(vol_agente_hora, x='Hora', y='Volume', color='Agente', 
-                                        title="Distribuição de Atendimento por Agente", barmode='stack')
+                    # 2. Quem atendeu em cada horário (Visão de Escala)
+                    vol_agente_hora = df.groupby(['Agente', 'Hora']).size().reset_index(name='Volume')
+                    matriz_agentes = vol_agente_hora.pivot(index='Agente', columns='Hora', values='Volume').fillna(0)
+                    
+                    fig_agente = px.imshow(matriz_agentes, text_auto=True, color_continuous_scale='Teal',
+                                        aspect="auto", title="Mapa de Atendimento por Agente (Escala)")
                     st.plotly_chart(fig_agente, use_container_width=True)
 
                 # 3. Mapa de Calor: Hora x Dia da Semana
