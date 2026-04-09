@@ -123,7 +123,6 @@ if gerar_relatorio:
         stats_aircall = buscar_dados_aircall_detalhados(ts_start, ts_end)
         admins = get_admin_details()
         
-        # Consolida todos os detalhes em uma única lista
         todos_detalhes = []
         for adm_id, stats in stats_aircall.items():
             nome = admins.get(adm_id, f"ID {adm_id}")
@@ -142,95 +141,94 @@ if gerar_relatorio:
                         "Ação": d["Ação"]
                     })
                     
-        df = pd.DataFrame(todos_detalhes)
+        # Salva o dataframe na memória do sistema
+        st.session_state['df_picos'] = pd.DataFrame(todos_detalhes)
 
-        if not df.empty:
-            st.markdown("### 📊 Gráficos de Pico")
+# Garante que os gráficos fiquem na tela mesmo quando mudar o filtro
+if 'df_picos' in st.session_state:
+    df_base = st.session_state['df_picos'].copy()
+
+    if not df_base.empty:
+        st.markdown("### 📊 Gráficos de Pico")
+        
+        c_f1, c_f2 = st.columns(2)
+        with c_f1:
+            apenas_inbound = st.checkbox("Analisar apenas ligações recebidas (Inbound)", value=True)
+        with c_f2:
+            turno = st.selectbox("Filtrar por Turno:", ["Todos os Horários", "Manhã (08h às 13h)", "Tarde (13h às 18h)"])
+        
+        if apenas_inbound:
+            df_base = df_base[df_base["Direção"] == "Entrada"]
             
-            # --- NOVO: FILTROS LADO A LADO ---
-            c_f1, c_f2 = st.columns(2)
-            with c_f1:
-                apenas_inbound = st.checkbox("Analisar apenas ligações recebidas (Inbound)", value=True)
-            with c_f2:
-                turno = st.selectbox("Filtrar por Turno:", ["Todos os Horários", "Manhã (08h às 13h)", "Tarde (13h às 18h)"])
+        if turno == "Manhã (08h às 13h)":
+            df_base = df_base[df_base["Hora"].isin(["08:00", "09:00", "10:00", "11:00", "12:00", "13:00"])]
+        elif turno == "Tarde (13h às 18h)":
+            df_base = df_base[df_base["Hora"].isin(["13:00", "14:00", "15:00", "16:00", "17:00", "18:00"])]
             
-            if apenas_inbound:
-                df = df[df["Direção"] == "Entrada"]
-                
-            # Aplica o filtro de turno
-            if turno == "Manhã (08h às 13h)":
-                df = df[df["Hora"].isin(["08:00", "09:00", "10:00", "11:00", "12:00", "13:00"])]
-            elif turno == "Tarde (13h às 18h)":
-                df = df[df["Hora"].isin(["13:00", "14:00", "15:00", "16:00", "17:00", "18:00"])]
-                
-            if df.empty:
-                st.warning("Não há ligações com este filtro no período.")
-            else:
-                c1, c2 = st.columns(2)
-                
-                with c1:
-                    # --- NOVO: GRÁFICO COM VOLUME TOTAL E LINHA DE MÉDIA ---
-                    import plotly.graph_objects as go
-                    
-                    # Calcula quantos dias únicos existem no filtro para fazer a média correta
-                    dias_unicos = df['Data'].nunique()
-                    if dias_unicos == 0: dias_unicos = 1
-                    
-                    vol_hora = df.groupby('Hora').size().reset_index(name='Volume Total')
-                    # Divide o total pelo número de dias para achar a média por hora
-                    vol_hora['Média por Dia'] = (vol_hora['Volume Total'] / dias_unicos).round(1)
-                    vol_hora = vol_hora.sort_values('Hora')
-                    
-                    fig_hora = go.Figure()
-                    
-                    # Desenha as barras azuis com o Volume Total
-                    fig_hora.add_trace(go.Bar(
-                        x=vol_hora['Hora'], y=vol_hora['Volume Total'], 
-                        name='Volume Acumulado', marker_color='#4C51BF',
-                        text=vol_hora['Volume Total'], textposition='auto'
-                    ))
-                    
-                    # Desenha a linha vermelha com a Média Diária
-                    fig_hora.add_trace(go.Scatter(
-                        x=vol_hora['Hora'], y=vol_hora['Média por Dia'], 
-                        name='Média Diária', mode='lines+markers+text',
-                        text=vol_hora['Média por Dia'], textposition='top center',
-                        yaxis='y2', line=dict(color='#E53E3E', width=3)
-                    ))
-                    
-                    # Ajusta o layout para ter dois eixos e um título claro
-                    fig_hora.update_layout(
-                        title=f"Volume vs Média (Base analisada: {dias_unicos} dias)",
-                        yaxis=dict(title="Volume Acumulado (Barras)", side='left'),
-                        yaxis2=dict(title="Média por Dia (Linha)", overlaying='y', side='right', showgrid=False),
-                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                        margin=dict(t=60)
-                    )
-                    st.plotly_chart(fig_hora, use_container_width=True)
-
-                with c2:
-                    # 2. Quem atendeu em cada horário (Visão de Escala)
-                    vol_agente_hora = df.groupby(['Agente', 'Hora']).size().reset_index(name='Volume')
-                    matriz_agentes = vol_agente_hora.pivot(index='Agente', columns='Hora', values='Volume').fillna(0)
-                    
-                    fig_agente = px.imshow(matriz_agentes, text_auto=True, color_continuous_scale='Teal',
-                                        aspect="auto", title="Mapa de Atendimento por Agente (Escala)")
-                    st.plotly_chart(fig_agente, use_container_width=True)
-
-                # 3. Mapa de Calor: Hora x Dia da Semana
-                st.markdown("### 🗓️ Mapa de Calor Semanal")
-                st.caption("Veja os horários mais críticos separados por dia da semana.")
-                
-                mapa_calor = df.groupby(['Dia da Semana', 'Hora']).size().reset_index(name='Volume')
-                mapa_pivot = mapa_calor.pivot(index='Dia da Semana', columns='Hora', values='Volume').fillna(0)
-                
-                # Ordena os dias da semana corretamente e limpa o prefixo numérico
-                mapa_pivot = mapa_pivot.sort_index()
-                mapa_pivot.index = [d.split('-')[1] for d in mapa_pivot.index]
-                
-                fig_heatmap = px.imshow(mapa_pivot, text_auto=True, color_continuous_scale='Blues',
-                                        aspect="auto", title="Volume de Ligações (Dias x Horários)")
-                st.plotly_chart(fig_heatmap, use_container_width=True)
-                
+        if df_base.empty:
+            st.warning("Não há ligações com este filtro no período.")
         else:
-            st.warning("Nenhuma ligação encontrada para o período selecionado.")
+            c1, c2 = st.columns(2)
+            
+            with c1:
+                import plotly.graph_objects as go
+                
+                dias_unicos = df_base['Data'].nunique()
+                if dias_unicos == 0: dias_unicos = 1
+                
+                vol_hora = df_base.groupby('Hora').size().reset_index(name='Volume Total')
+                vol_hora['Média por Dia'] = (vol_hora['Volume Total'] / dias_unicos).round(1)
+                vol_hora = vol_hora.sort_values('Hora')
+                
+                fig_hora = go.Figure()
+                
+                # Cores mais limpas: Barras em cinza claro e a linha de média em azul forte
+                fig_hora.add_trace(go.Bar(
+                    x=vol_hora['Hora'], y=vol_hora['Volume Total'], 
+                    name='Volume Acumulado', marker_color='#E2E8F0',
+                    text=vol_hora['Volume Total'], textposition='auto',
+                    textfont=dict(color='#4A5568')
+                ))
+                
+                fig_hora.add_trace(go.Scatter(
+                    x=vol_hora['Hora'], y=vol_hora['Média por Dia'], 
+                    name='Média Diária', mode='lines+markers+text',
+                    text=vol_hora['Média por Dia'], textposition='top center',
+                    yaxis='y2', line=dict(color='#2B6CB0', width=4),
+                    marker=dict(size=8)
+                ))
+                
+                fig_hora.update_layout(
+                    title=f"Volume vs Média Diária (Base analisada: {dias_unicos} dias)",
+                    yaxis=dict(title="Volume Acumulado", side='left', showgrid=False),
+                    yaxis2=dict(title="Média por Dia", overlaying='y', side='right', showgrid=False),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                    margin=dict(t=60),
+                    plot_bgcolor='white'
+                )
+                st.plotly_chart(fig_hora, use_container_width=True)
+
+            with c2:
+                vol_agente_hora = df_base.groupby(['Agente', 'Hora']).size().reset_index(name='Volume')
+                matriz_agentes = vol_agente_hora.pivot(index='Agente', columns='Hora', values='Volume').fillna(0)
+                
+                # Mapa de calor usando azul, muito mais profissional
+                fig_agente = px.imshow(matriz_agentes, text_auto=True, color_continuous_scale='Blues',
+                                    aspect="auto", title="Mapa de Atendimento por Agente (Escala)")
+                st.plotly_chart(fig_agente, use_container_width=True)
+
+            st.markdown("### 🗓️ Mapa de Calor Semanal")
+            st.caption("Veja os horários mais críticos separados por dia da semana.")
+            
+            mapa_calor = df_base.groupby(['Dia da Semana', 'Hora']).size().reset_index(name='Volume')
+            mapa_pivot = mapa_calor.pivot(index='Dia da Semana', columns='Hora', values='Volume').fillna(0)
+            
+            mapa_pivot = mapa_pivot.sort_index()
+            mapa_pivot.index = [d.split('-')[1] for d in mapa_pivot.index]
+            
+            fig_heatmap = px.imshow(mapa_pivot, text_auto=True, color_continuous_scale='Oranges',
+                                    aspect="auto", title="Volume de Ligações (Dias x Horários)")
+            st.plotly_chart(fig_heatmap, use_container_width=True)
+            
+    else:
+        st.warning("Nenhuma ligação encontrada para o período selecionado.")
