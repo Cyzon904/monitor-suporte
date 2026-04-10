@@ -161,6 +161,10 @@ if gerar_relatorio:
                 if d["Ação"] in ["Fora do Horário", "Pausa/Treinamento", "Abandonada", "Não Atendida", "Voicemail"]:
                     nome_agente = "Sem Agente"
                 
+                # Regra nova para ignorar chamadas que não foram atribuídas a ninguém
+                if nome_agente == "Não Atribuído":
+                    continue
+                
                 todos_detalhes.append({
                     "Agente": nome_agente,
                     "Data": dt_obj.strftime('%d/%m/%Y'),
