@@ -206,11 +206,12 @@ if 'df_picos' in st.session_state:
             
             perdas_lista = ["Fora do Horário", "Pausa/Treinamento", "Abandonada", "Não Atendida", "Voicemail"]
             
-            # Filtra todas as chamadas apenas da linha principal para o cálculo da métrica
-            df_principal = df_base[
-                df_base["Linha Digitos"].astype(str).str.contains("39060321", na=False) |
-                df_base["Linha Nome"].astype(str).str.contains("Produttivo - Atendimento", case=False, na=False)
-            ]
+            # Filtra todas as chamadas das linhas principais para o cálculo da métrica
+            condicao_principal = (
+                df_base["Linha Digitos"].astype(str).str.contains("39060321|35421328", na=False, regex=True) |
+                df_base["Linha Nome"].astype(str).str.contains("Produttivo - Atendimento|Bradial", case=False, na=False, regex=True)
+            )
+            df_principal = df_base[condicao_principal]
             
             taxa_perda = round((len(df_principal[df_principal["Status"].isin(perdas_lista)]) / len(df_principal)) * 100, 1) if len(df_principal) > 0 else 0
 
@@ -218,28 +219,48 @@ if 'df_picos' in st.session_state:
             k1.metric("Horário de Maior Pico", hora_pico)
             k2.metric("Dia Mais Crítico", dia_pico)
             k3.metric("Tempo Médio por Chamada", f"{duracao_media} min")
-            k4.metric("Taxa Perda (Linha Principal)", f"{taxa_perda}%")
+            k4.metric("Taxa Perda (Linhas Principais)", f"{taxa_perda}%")
             
             st.divider()
 
-            c1, c2 = st.columns(2)
-            with c1:
-                st.markdown("**Volume Total por Horário (Atendidas vs Perdidas)**")
-                vol_status = df_base.groupby(['Hora', 'Status']).size().reset_index(name='Volume')
-                fig_hora = px.bar(vol_status, x='Hora', y='Volume', color='Status',
-                                  color_discrete_map={
-                                      "Atendida": "#2B6CB0", 
-                                      "Fora do Horário": "#A0AEC0",
-                                      "Pausa/Treinamento": "#805AD5",
-                                      "Abandonada": "#E53E3E", 
-                                      "Não Atendida": "#DD6B20",
-                                      "Voicemail": "#ED8936"
-                                  },
-                                  barmode='stack', text='Volume')
-                fig_hora.update_layout(plot_bgcolor='white', legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-                st.plotly_chart(fig_hora, use_container_width=True)
+            st.markdown("### 📊 Volume Total por Horário")
+            c_graf1, c_graf2 = st.columns(2)
+            
+            with c_graf1:
+                st.markdown("**✔️ Ligações Atendidas**")
+                df_atendidas_graf = df_base[df_base["Status"] == "Atendida"]
+                if not df_atendidas_graf.empty:
+                    vol_atendidas = df_atendidas_graf.groupby('Hora').size().reset_index(name='Volume')
+                    fig_atendidas = px.bar(vol_atendidas, x='Hora', y='Volume', color_discrete_sequence=["#2B6CB0"], text='Volume')
+                    fig_atendidas.update_layout(plot_bgcolor='white', showlegend=False, xaxis_title="", yaxis_title="")
+                    st.plotly_chart(fig_atendidas, use_container_width=True)
+                else:
+                    st.info("Nenhuma ligação atendida neste filtro.")
 
-            with c2:
+            with c_graf2:
+                st.markdown("**❌ Ligações Perdidas**")
+                df_perdidas_graf = df_base[df_base["Status"].isin(perdas_lista)]
+                if not df_perdidas_graf.empty:
+                    vol_perdidas = df_perdidas_graf.groupby(['Hora', 'Status']).size().reset_index(name='Volume')
+                    fig_perdidas = px.bar(vol_perdidas, x='Hora', y='Volume', color='Status',
+                                      color_discrete_map={
+                                          "Fora do Horário": "#A0AEC0",
+                                          "Pausa/Treinamento": "#805AD5",
+                                          "Abandonada": "#E53E3E", 
+                                          "Não Atendida": "#DD6B20",
+                                          "Voicemail": "#ED8936"
+                                      },
+                                      barmode='stack', text='Volume')
+                    fig_perdidas.update_layout(plot_bgcolor='white', legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, title=""), xaxis_title="", yaxis_title="")
+                    st.plotly_chart(fig_perdidas, use_container_width=True)
+                else:
+                    st.info("Nenhuma ligação perdida neste filtro.")
+
+            st.divider()
+            
+            c_mapa1, c_mapa2 = st.columns(2)
+            
+            with c_mapa1:
                 st.markdown("**Mapa de Atendimento por Agente**")
                 df_atendidas = df_base[df_base["Status"] == "Atendida"]
                 if not df_atendidas.empty:
@@ -250,34 +271,35 @@ if 'df_picos' in st.session_state:
                 else:
                     st.info("Sem dados de atendimento neste filtro.")
 
-            st.markdown("### 🗓️ Mapa de Calor Semanal")
-            mapa_calor = df_base.groupby(['Dia da Semana', 'Hora']).size().reset_index(name='Volume')
-            mapa_pivot = mapa_calor.pivot(index='Dia da Semana', columns='Hora', values='Volume').fillna(0)
-            mapa_pivot = mapa_pivot.sort_index()
-            mapa_pivot.index = [d.split('-')[1] for d in mapa_pivot.index]
-            fig_heatmap = px.imshow(mapa_pivot, text_auto=True, color_continuous_scale='Oranges', aspect="auto")
-            st.plotly_chart(fig_heatmap, use_container_width=True)
+            with c_mapa2:
+                st.markdown("**🗓️ Mapa de Calor Semanal**")
+                mapa_calor = df_base.groupby(['Dia da Semana', 'Hora']).size().reset_index(name='Volume')
+                mapa_pivot = mapa_calor.pivot(index='Dia da Semana', columns='Hora', values='Volume').fillna(0)
+                mapa_pivot = mapa_pivot.sort_index()
+                mapa_pivot.index = [d.split('-')[1] for d in mapa_pivot.index]
+                fig_heatmap = px.imshow(mapa_pivot, text_auto=True, color_continuous_scale='Oranges', aspect="auto")
+                st.plotly_chart(fig_heatmap, use_container_width=True)
             
             st.divider()
 
             st.markdown("### 🚨 Detalhamento de Ligações Perdidas")
-            st.caption("Lista de chamadas não atendidas na linha Produttivo - Atendimento (+55 41 3906 0321).")
+            st.caption("Lista de chamadas não atendidas nas linhas principais (Produttivo - Atendimento e Bradial).")
             
             df_perdas = df_base[df_base["Status"].isin(perdas_lista)]
             
             if not df_perdas.empty:
                 df_perdas_principal = df_perdas[
-                    df_perdas["Linha Digitos"].astype(str).str.contains("39060321", na=False) |
-                    df_perdas["Linha Nome"].astype(str).str.contains("Produttivo - Atendimento", case=False, na=False)
+                    df_perdas["Linha Digitos"].astype(str).str.contains("39060321|35421328", na=False, regex=True) |
+                    df_perdas["Linha Nome"].astype(str).str.contains("Produttivo - Atendimento|Bradial", case=False, na=False, regex=True)
                 ]
             else:
                 df_perdas_principal = pd.DataFrame()
             
             if not df_perdas_principal.empty:
-                df_exibicao_perdas = df_perdas_principal[["Data", "Hora", "Status", "Nome Cliente", "Número Cliente"]].sort_values(by=["Data", "Hora"], ascending=[False, False])
+                df_exibicao_perdas = df_perdas_principal[["Data", "Hora", "Status", "Nome Cliente", "Número Cliente", "Linha Nome"]].sort_values(by=["Data", "Hora"], ascending=[False, False])
                 st.dataframe(df_exibicao_perdas, use_container_width=True, hide_index=True)
             else:
-                st.success("Excelente. Nenhuma ligação perdida na linha principal neste período.")
+                st.success("Excelente. Nenhuma ligação perdida nas linhas principais neste período.")
                 
             st.divider()
 
