@@ -24,6 +24,7 @@ AGENTS_MAP = {
     "heloisa.atm.slv@produttivo.com.br": "7455039",
     "danielle.ghesini@produttivo.com.br": "7628368",
     "jenyffer.souza@produttivo.com.br": "8115775",
+    "bruno.braga@produttivo.com.br": "7450383",
     "marcelo.misugi@produttivo.com.br": "8126602"
 }
 
