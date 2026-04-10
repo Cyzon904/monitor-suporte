@@ -84,12 +84,19 @@ def buscar_dados_aircall_detalhados(ts_inicio, ts_fim):
                 motivo_perda = str(call.get('missed_call_reason') or "").lower()
                 
                 acao = "Atendida"
-                # Verificamos tanto o status quanto a existência de um motivo de perda
                 if status == 'missed' or motivo_perda != "":
-                    if 'out_of_business_hours' in motivo_perda:
-                        acao = "Fora do Horário"
+                    if 'out_of_opening_hours' in motivo_perda or 'out_of_business_hours' in motivo_perda:
+                        # Pega a hora da ligação no fuso do Brasil para saber se foi no meio do dia
+                        hora_ligacao = datetime.fromtimestamp(ts_ligacao, tz=FUSO_BR).hour if ts_ligacao > 0 else 0
+                        # Se foi entre 09:00 e 17:59, consideramos como pausa ou treinamento
+                        if 9 <= hora_ligacao < 18:
+                            acao = "Pausa/Treinamento"
+                        else:
+                            acao = "Fora do Horário"
                     elif 'abandoned' in motivo_perda:
                         acao = "Abandonada"
+                    elif 'agents_did_not_answer' in motivo_perda or 'no_available_agent' in motivo_perda:
+                        acao = "Não Atendida"
                     elif status == 'voicemail' or 'voicemail' in motivo_perda:
                         acao = "Voicemail"
                     else:
@@ -146,7 +153,7 @@ if gerar_relatorio:
                 dia_semana_en = dt_obj.strftime('%A')
                 
                 nome_agente = admins.get(d["Admin_ID"], f"ID {d['Admin_ID']}") if d["Admin_ID"] else "Não Atribuído"
-                if d["Ação"] in ["Fora do Horário", "Abandonada", "Não Atendida", "Voicemail"]:
+                if d["Ação"] in ["Fora do Horário", "Pausa/Treinamento", "Abandonada", "Não Atendida", "Voicemail"]:
                     nome_agente = "Sem Agente"
                 
                 todos_detalhes.append({
@@ -191,7 +198,7 @@ if 'df_picos' in st.session_state:
             dia_pico = df_base.groupby('Dia da Semana').size().idxmax().split('-')[1] if not df_base.empty else "N/A"
             duracao_media = round(df_base[df_base["Status"] == "Atendida"]["Duração (min)"].mean(), 1)
             
-            perdas_lista = ["Fora do Horário", "Abandonada", "Não Atendida", "Voicemail"]
+            perdas_lista = ["Fora do Horário", "Pausa/Treinamento", "Abandonada", "Não Atendida", "Voicemail"]
             taxa_perda = round((len(df_base[df_base["Status"].isin(perdas_lista)]) / len(df_base)) * 100, 1) if len(df_base) > 0 else 0
 
             k1, k2, k3, k4 = st.columns(4)
@@ -209,7 +216,8 @@ if 'df_picos' in st.session_state:
                 fig_hora = px.bar(vol_status, x='Hora', y='Volume', color='Status',
                                   color_discrete_map={
                                       "Atendida": "#2B6CB0", 
-                                      "Fora do Horário": "#A0AEC0", 
+                                      "Fora do Horário": "#A0AEC0",
+                                      "Pausa/Treinamento": "#805AD5",
                                       "Abandonada": "#E53E3E", 
                                       "Não Atendida": "#DD6B20",
                                       "Voicemail": "#ED8936"
