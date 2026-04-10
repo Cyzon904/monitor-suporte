@@ -212,13 +212,18 @@ if 'df_picos' in st.session_state:
             )
             df_principal = df_base[condicao_principal]
             
-            taxa_perda = round((len(df_principal[df_principal["Status"].isin(perdas_lista)]) / len(df_principal)) * 100, 1) if len(df_principal) > 0 else 0
+            total_atendidas = len(df_base[df_base["Status"] == "Atendida"])
+            total_perdidas = len(df_principal[df_principal["Status"].isin(perdas_lista)])
+            
+            taxa_perda = round((total_perdidas / len(df_principal)) * 100, 1) if len(df_principal) > 0 else 0
 
-            k1, k2, k3, k4 = st.columns(4)
-            k1.metric("Horário de Maior Pico", hora_pico)
-            k2.metric("Dia Mais Crítico", dia_pico)
-            k3.metric("Tempo Médio por Chamada", f"{duracao_media} min")
-            k4.metric("Taxa Perda (Linhas Principais)", f"{taxa_perda}%")
+            k1, k2, k3, k4, k5, k6 = st.columns(6)
+            k1.metric("Volume Atendidas", total_atendidas)
+            k2.metric("Perdidas (Principais)", total_perdidas)
+            k3.metric("Taxa Perda (Principais)", f"{taxa_perda}%")
+            k4.metric("Tempo Médio", f"{duracao_media} min")
+            k5.metric("Horário de Pico", hora_pico)
+            k6.metric("Dia Mais Crítico", dia_pico)
             
             st.divider()
 
@@ -238,7 +243,6 @@ if 'df_picos' in st.session_state:
 
             with c_graf2:
                 st.markdown("**❌ Ligações Perdidas (Linhas Principais)**")
-                # Aqui aplicamos a mesma lógica para usar o df_principal no gráfico
                 df_perdidas_graf = df_principal[df_principal["Status"].isin(perdas_lista)]
                 if not df_perdidas_graf.empty:
                     vol_perdidas = df_perdidas_graf.groupby(['Hora', 'Status']).size().reset_index(name='Volume')
