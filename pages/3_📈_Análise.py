@@ -71,7 +71,6 @@ def buscar_dados_aircall_detalhados(ts_inicio, ts_fim):
                 duracao = call.get('duration', 0)
                 numero = call.get('raw_digits') or "Número Oculto"
                 
-                # NOVA REGRA: Extrair o nome do contato salvo
                 contact = call.get('contact') or {}
                 first_name = contact.get('first_name') or ""
                 last_name = contact.get('last_name') or ""
@@ -82,9 +81,16 @@ def buscar_dados_aircall_detalhados(ts_inicio, ts_fim):
                 
                 user_email = call.get('user', {}).get('email', '').lower() if call.get('user') else ""
                 
+                motivo_perda = call.get('missed_call_reason', '')
+                
                 acao = "Atendida"
                 if status == 'missed':
-                    acao = "Perdida"
+                    if motivo_perda == 'out_of_business_hours':
+                        acao = "Fora do Horário"
+                    elif 'abandoned' in motivo_perda:
+                        acao = "Abandonada"
+                    else:
+                        acao = "Não Atendida"
                 elif status == 'voicemail':
                     acao = "Voicemail"
                     
@@ -136,8 +142,8 @@ if gerar_relatorio:
                 dia_semana_en = dt_obj.strftime('%A')
                 
                 nome_agente = admins.get(d["Admin_ID"], f"ID {d['Admin_ID']}") if d["Admin_ID"] else "Não Atribuído"
-                if d["Ação"] in ["Perdida", "Voicemail"]:
-                    nome_agente = "Não Atendida"
+                if d["Ação"] in ["Fora do Horário", "Abandonada", "Não Atendida", "Voicemail"]:
+                    nome_agente = "Sem Agente"
                 
                 todos_detalhes.append({
                     "Agente": nome_agente,
@@ -180,7 +186,9 @@ if 'df_picos' in st.session_state:
             hora_pico = vol_por_hora.idxmax() if not vol_por_hora.empty else "N/A"
             dia_pico = df_base.groupby('Dia da Semana').size().idxmax().split('-')[1] if not df_base.empty else "N/A"
             duracao_media = round(df_base[df_base["Status"] == "Atendida"]["Duração (min)"].mean(), 1)
-            taxa_perda = round((len(df_base[df_base["Status"] == "Perdida"]) / len(df_base)) * 100, 1) if len(df_base) > 0 else 0
+            
+            perdas = ["Fora do Horário", "Abandonada", "Não Atendida", "Voicemail"]
+            taxa_perda = round((len(df_base[df_base["Status"].isin(perdas)]) / len(df_base)) * 100, 1) if len(df_base) > 0 else 0
 
             k1, k2, k3, k4 = st.columns(4)
             k1.metric("Horário de Maior Pico", hora_pico)
@@ -195,7 +203,13 @@ if 'df_picos' in st.session_state:
                 st.markdown("**Volume Total por Horário (Atendidas vs Perdidas)**")
                 vol_status = df_base.groupby(['Hora', 'Status']).size().reset_index(name='Volume')
                 fig_hora = px.bar(vol_status, x='Hora', y='Volume', color='Status',
-                                  color_discrete_map={"Atendida": "#2B6CB0", "Perdida": "#E53E3E", "Voicemail": "#ED8936"},
+                                  color_discrete_map={
+                                      "Atendida": "#2B6CB0", 
+                                      "Fora do Horário": "#A0AEC0", 
+                                      "Abandonada": "#E53E3E", 
+                                      "Não Atendida": "#DD6B20",
+                                      "Voicemail": "#ED8936"
+                                  },
                                   barmode='stack', text='Volume')
                 fig_hora.update_layout(plot_bgcolor='white', legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
                 st.plotly_chart(fig_hora, use_container_width=True)
@@ -224,7 +238,6 @@ if 'df_picos' in st.session_state:
             st.markdown("### 🔄 Clientes Recorrentes")
             st.caption("Contatos que ligaram mais de uma vez no período e o tempo investido neles.")
             
-            # Aqui adicionamos a coluna de Nome Cliente no agrupamento
             recorrentes = df_base.groupby(['Número Cliente', 'Nome Cliente']).agg(
                 Qtd_Ligacoes=('Status', 'count'),
                 Tempo_Total=('Duração (min)', 'sum'),
