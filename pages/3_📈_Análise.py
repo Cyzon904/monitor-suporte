@@ -204,9 +204,9 @@ if 'df_picos' in st.session_state:
             dia_pico = df_base.groupby('Dia da Semana').size().idxmax().split('-')[1] if not df_base.empty else "N/A"
             duracao_media = round(df_base[df_base["Status"] == "Atendida"]["Duração (min)"].mean(), 1)
             
-            perdas_lista = ["Fora do Horário", "Pausa/Treinamento", "Abandonada", "Não Atendida", "Voicemail"]
+            # Aqui está a alteração: retiramos "Pausa/Treinamento" desta lista
+            perdas_lista = ["Fora do Horário", "Abandonada", "Não Atendida", "Voicemail"]
             
-            # Filtra todas as chamadas das linhas principais para o cálculo da métrica
             condicao_principal = (
                 df_base["Linha Digitos"].astype(str).str.contains("39060321|35421328", na=False, regex=True) |
                 df_base["Linha Nome"].astype(str).str.contains("Produttivo - Atendimento|Bradial", case=False, na=False, regex=True)
@@ -245,7 +245,6 @@ if 'df_picos' in st.session_state:
                     fig_perdidas = px.bar(vol_perdidas, x='Hora', y='Volume', color='Status',
                                       color_discrete_map={
                                           "Fora do Horário": "#A0AEC0",
-                                          "Pausa/Treinamento": "#805AD5",
                                           "Abandonada": "#E53E3E", 
                                           "Não Atendida": "#DD6B20",
                                           "Voicemail": "#ED8936"
