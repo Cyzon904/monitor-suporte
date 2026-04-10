@@ -86,9 +86,7 @@ def buscar_dados_aircall_detalhados(ts_inicio, ts_fim):
                 acao = "Atendida"
                 if status == 'missed' or motivo_perda != "":
                     if 'out_of_opening_hours' in motivo_perda or 'out_of_business_hours' in motivo_perda:
-                        # Pega a hora da ligação no fuso do Brasil para saber se foi no meio do dia
                         hora_ligacao = datetime.fromtimestamp(ts_ligacao, tz=FUSO_BR).hour if ts_ligacao > 0 else 0
-                        # Se foi entre 09:00 e 17:59, consideramos como pausa ou treinamento
                         if 9 <= hora_ligacao < 18:
                             acao = "Pausa/Treinamento"
                         else:
@@ -105,6 +103,10 @@ def buscar_dados_aircall_detalhados(ts_inicio, ts_fim):
                     acao = "Voicemail"
                     
                 adm_id = AGENTS_MAP.get(user_email, "")
+                
+                linha_obj = call.get('number') or {}
+                linha_nome = linha_obj.get('name') or "Desconhecido"
+                linha_digitos = linha_obj.get('digits') or ""
 
                 lista_chamadas.append({
                     "Data_Timestamp": ts_ligacao, 
@@ -113,7 +115,9 @@ def buscar_dados_aircall_detalhados(ts_inicio, ts_fim):
                     "Duração (seg)": duracao,
                     "Número Cliente": numero,
                     "Nome Cliente": nome_contato,
-                    "Admin_ID": adm_id
+                    "Admin_ID": adm_id,
+                    "Linha Nome": linha_nome,
+                    "Linha Digitos": linha_digitos
                 })
 
             if data.get('meta', {}).get('next_page_link'):
@@ -165,7 +169,9 @@ if gerar_relatorio:
                     "Status": d["Ação"],
                     "Duração (min)": round(d["Duração (seg)"] / 60, 1),
                     "Número Cliente": d["Número Cliente"],
-                    "Nome Cliente": d["Nome Cliente"]
+                    "Nome Cliente": d["Nome Cliente"],
+                    "Linha Nome": d["Linha Nome"],
+                    "Linha Digitos": d["Linha Digitos"]
                 })
                     
         st.session_state['df_picos'] = pd.DataFrame(todos_detalhes)
@@ -248,15 +254,23 @@ if 'df_picos' in st.session_state:
             st.divider()
 
             st.markdown("### 🚨 Detalhamento de Ligações Perdidas")
-            st.caption("Lista de todas as chamadas não atendidas no período filtrado separadas por motivo.")
+            st.caption("Lista de chamadas não atendidas na linha Produttivo - Atendimento (+55 41 3906 0321).")
             
             df_perdas = df_base[df_base["Status"].isin(perdas_lista)]
             
             if not df_perdas.empty:
-                df_exibicao_perdas = df_perdas[["Data", "Hora", "Status", "Número Cliente", "Nome Cliente"]].sort_values(by=["Data", "Hora"], ascending=[False, False])
+                df_perdas_principal = df_perdas[
+                    df_perdas["Linha Digitos"].astype(str).str.contains("39060321", na=False) |
+                    df_perdas["Linha Nome"].astype(str).str.contains("Produttivo - Atendimento", case=False, na=False)
+                ]
+            else:
+                df_perdas_principal = pd.DataFrame()
+            
+            if not df_perdas_principal.empty:
+                df_exibicao_perdas = df_perdas_principal[["Data", "Hora", "Status", "Nome Cliente", "Número Cliente"]].sort_values(by=["Data", "Hora"], ascending=[False, False])
                 st.dataframe(df_exibicao_perdas, use_container_width=True, hide_index=True)
             else:
-                st.success("Excelente. Nenhuma ligação perdida neste período.")
+                st.success("Excelente. Nenhuma ligação perdida na linha principal neste período.")
                 
             st.divider()
 
