@@ -84,23 +84,25 @@ def buscar_dados_aircall_detalhados(ts_inicio, ts_fim):
                 motivo_perda = str(call.get('missed_call_reason') or "").lower()
                 
                 acao = "Atendida"
-                if status == 'missed' or motivo_perda != "":
-                    if 'out_of_opening_hours' in motivo_perda or 'out_of_business_hours' in motivo_perda:
-                        hora_ligacao = datetime.fromtimestamp(ts_ligacao, tz=FUSO_BR).hour if ts_ligacao > 0 else 0
-                        if 9 <= hora_ligacao < 18:
+                
+                # Se for qualquer tipo de perda ou voicemail, verificamos a hora primeiro
+                if status == 'missed' or motivo_perda != "" or status == 'voicemail':
+                    hora_ligacao = datetime.fromtimestamp(ts_ligacao, tz=FUSO_BR).hour if ts_ligacao > 0 else 0
+                    
+                    if 9 <= hora_ligacao < 18:
+                        if 'out_of_opening_hours' in motivo_perda or 'out_of_business_hours' in motivo_perda:
                             acao = "Pausa/Treinamento"
+                        elif 'abandoned' in motivo_perda:
+                            acao = "Abandonada"
+                        elif 'agents_did_not_answer' in motivo_perda or 'no_available_agent' in motivo_perda:
+                            acao = "Não Atendida"
+                        elif status == 'voicemail' or 'voicemail' in motivo_perda:
+                            acao = "Voicemail"
                         else:
-                            acao = "Fora do Horário"
-                    elif 'abandoned' in motivo_perda:
-                        acao = "Abandonada"
-                    elif 'agents_did_not_answer' in motivo_perda or 'no_available_agent' in motivo_perda:
-                        acao = "Não Atendida"
-                    elif status == 'voicemail' or 'voicemail' in motivo_perda:
-                        acao = "Voicemail"
+                            acao = "Não Atendida"
                     else:
-                        acao = "Não Atendida"
-                elif status == 'voicemail':
-                    acao = "Voicemail"
+                        # Qualquer perda fora da janela 09h-18h é Fora do Horário
+                        acao = "Fora do Horário"
                     
                 adm_id = AGENTS_MAP.get(user_email, "")
                 
@@ -204,8 +206,8 @@ if 'df_picos' in st.session_state:
             dia_pico = df_base.groupby('Dia da Semana').size().idxmax().split('-')[1] if not df_base.empty else "N/A"
             duracao_media = round(df_base[df_base["Status"] == "Atendida"]["Duração (min)"].mean(), 1)
             
-            # Removemos o "Fora do Horário" e "Pausa/Treinamento" daqui para focar apenas nas perdas em horário de trabalho
-            perdas_lista = ["Abandonada", "Não Atendida", "Voicemail"]
+            # Aqui listamos apenas o que foi perdido dentro do horário comercial
+            perdas_lista = ["Pausa/Treinamento", "Abandonada", "Não Atendida", "Voicemail"]
             
             condicao_principal = (
                 df_base["Linha Digitos"].astype(str).str.contains("39060321|35421328", na=False, regex=True) |
@@ -244,6 +246,7 @@ if 'df_picos' in st.session_state:
                     vol_perdidas = df_perdidas_graf.groupby(['Hora', 'Status']).size().reset_index(name='Volume')
                     fig_perdidas = px.bar(vol_perdidas, x='Hora', y='Volume', color='Status',
                                       color_discrete_map={
+                                          "Pausa/Treinamento": "#805AD5",
                                           "Abandonada": "#E53E3E", 
                                           "Não Atendida": "#DD6B20",
                                           "Voicemail": "#ED8936"
