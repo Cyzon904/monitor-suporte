@@ -161,7 +161,6 @@ if gerar_relatorio:
                 if d["Ação"] in ["Fora do Horário", "Pausa/Treinamento", "Abandonada", "Não Atendida", "Voicemail"]:
                     nome_agente = "Sem Agente"
                 
-                # Regra nova para ignorar chamadas que não foram atribuídas a ninguém
                 if nome_agente == "Não Atribuído":
                     continue
                 
@@ -311,9 +310,9 @@ if 'df_picos' in st.session_state:
             st.divider()
 
             st.markdown("### 🔄 Clientes Recorrentes")
-            st.caption("Contatos que ligaram mais de uma vez no período e o tempo investido neles.")
+            st.caption("Contatos que ligaram mais de uma vez no período para as linhas principais e o tempo investido neles.")
             
-            recorrentes = df_base.groupby(['Número Cliente', 'Nome Cliente']).agg(
+            recorrentes = df_principal.groupby(['Número Cliente', 'Nome Cliente']).agg(
                 Qtd_Ligacoes=('Status', 'count'),
                 Tempo_Total=('Duração (min)', 'sum'),
                 Tempo_Medio=('Duração (min)', 'mean')
