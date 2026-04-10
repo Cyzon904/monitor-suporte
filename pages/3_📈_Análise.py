@@ -81,14 +81,17 @@ def buscar_dados_aircall_detalhados(ts_inicio, ts_fim):
                 
                 user_email = call.get('user', {}).get('email', '').lower() if call.get('user') else ""
                 
-                motivo_perda = call.get('missed_call_reason', '')
+                motivo_perda = str(call.get('missed_call_reason') or "").lower()
                 
                 acao = "Atendida"
-                if status == 'missed':
-                    if motivo_perda == 'out_of_business_hours':
+                # Verificamos tanto o status quanto a existência de um motivo de perda
+                if status == 'missed' or motivo_perda != "":
+                    if 'out_of_business_hours' in motivo_perda:
                         acao = "Fora do Horário"
                     elif 'abandoned' in motivo_perda:
                         acao = "Abandonada"
+                    elif status == 'voicemail' or 'voicemail' in motivo_perda:
+                        acao = "Voicemail"
                     else:
                         acao = "Não Atendida"
                 elif status == 'voicemail':
@@ -110,7 +113,8 @@ def buscar_dados_aircall_detalhados(ts_inicio, ts_fim):
                 page += 1
             else:
                 break
-        except Exception:
+        except Exception as e:
+            print(f"Erro ao processar chamada: {e}")
             break
     return lista_chamadas
 
