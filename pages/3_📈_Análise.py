@@ -187,8 +187,8 @@ if 'df_picos' in st.session_state:
             dia_pico = df_base.groupby('Dia da Semana').size().idxmax().split('-')[1] if not df_base.empty else "N/A"
             duracao_media = round(df_base[df_base["Status"] == "Atendida"]["Duração (min)"].mean(), 1)
             
-            perdas = ["Fora do Horário", "Abandonada", "Não Atendida", "Voicemail"]
-            taxa_perda = round((len(df_base[df_base["Status"].isin(perdas)]) / len(df_base)) * 100, 1) if len(df_base) > 0 else 0
+            perdas_lista = ["Fora do Horário", "Abandonada", "Não Atendida", "Voicemail"]
+            taxa_perda = round((len(df_base[df_base["Status"].isin(perdas_lista)]) / len(df_base)) * 100, 1) if len(df_base) > 0 else 0
 
             k1, k2, k3, k4 = st.columns(4)
             k1.metric("Horário de Maior Pico", hora_pico)
@@ -233,6 +233,19 @@ if 'df_picos' in st.session_state:
             fig_heatmap = px.imshow(mapa_pivot, text_auto=True, color_continuous_scale='Oranges', aspect="auto")
             st.plotly_chart(fig_heatmap, use_container_width=True)
             
+            st.divider()
+
+            st.markdown("### 🚨 Detalhamento de Ligações Perdidas")
+            st.caption("Lista de todas as chamadas não atendidas no período filtrado separadas por motivo.")
+            
+            df_perdas = df_base[df_base["Status"].isin(perdas_lista)]
+            
+            if not df_perdas.empty:
+                df_exibicao_perdas = df_perdas[["Data", "Hora", "Status", "Número Cliente", "Nome Cliente"]].sort_values(by=["Data", "Hora"], ascending=[False, False])
+                st.dataframe(df_exibicao_perdas, use_container_width=True, hide_index=True)
+            else:
+                st.success("Excelente. Nenhuma ligação perdida neste período.")
+                
             st.divider()
 
             st.markdown("### 🔄 Clientes Recorrentes")
