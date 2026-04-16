@@ -1,77 +1,57 @@
-# 🚀 Monitor Operacional Unificado (Intercom + Aircall)
+# 📊 Monitor Operacional Unificado - Guia Simples
 
-> **Status:** Versão 2.0 (Em Produção)  
-> **Responsável:** Jeny
+Este projeto é um painel de controle interativo (Dashboard) criado com Python (Streamlit) para centralizar a gestão do time de suporte. Ele se conecta automaticamente às plataformas **Intercom** (atendimento por texto/tickets) e **Aircall** (atendimento telefônico).
 
-## 📌 Sobre o Projeto
-Este é um ecossistema de monitoramento em tempo real desenvolvido em **Python (Streamlit)** para centralizar a gestão da operação de suporte. 
-
-O objetivo principal é eliminar a "cegueira operacional" e a necessidade de alternar entre múltiplas ferramentas (Intercom, Aircall, Slack), oferecendo uma visão única de **Texto (Tickets)** e **Voz (Telefonia)**.
-
-O sistema atualiza automaticamente a cada 60 segundos e envia alertas proativos para a liderança.
+Abaixo, explico de forma simples e direta o que você encontra em cada página do sistema:
 
 ---
 
-## 🔥 Principais Funcionalidades
+## 1. 📊 Relatório Gerencial (Atributos)
+**De onde vêm os dados:** Intercom.
 
-### 1. Painel Operacional (`dashboard_visual.py`)
-* **Monitoramento Multi-Times:** Vigia as filas de espera de múltiplos departamentos (ex: Suporte, Financeiro) simultaneamente.
-* **Integração de Voz (Aircall):** Cruza o e-mail do agente para contabilizar ligações atendidas/perdidas e disponibiliza o **link direto para ouvir a gravação** da chamada.
-* **Visão de Produtividade:** Tabela unificada mostrando Tickets Abertos vs. Ligações Atendidas por agente.
-* **Status em Tempo Real:** Indica quem está Online ou Ausente (Away).
+Esta é a página principal com a visão global estratégica do atendimento por texto.
+* **O que faz:** * Analisa o volume total de conversas e quantas já foram resolvidas.
+  * Mede o Tempo Médio de Resolução (SLA) da equipe.
+  * Mostra os principais motivos que levam os clientes a entrar em contato.
+  * Possui abas para visualizar a produtividade individual de cada atendente e a distribuição de notas (CSAT).
 
-### 2. Painel de Qualidade (`dashboard_csat.py`)
-* Análise histórica de CSAT (Customer Satisfaction Score).
-* Filtros por data e por agente para feedback individual.
+## 2. 📞 Relatório de Telefonia
+**De onde vêm os dados:** Aircall.
 
-### 3. Sistema de Alertas (Slack)
-Um "robô vigia" que notifica no Slack quando:
-* 🔥 Existe fila de espera (com link direto para o ticket e nome do time).
-* ⚠️ Um agente está sobrecarregado (10+ tickets abertos).
-* ⚡ Há um pico de demanda (3+ tickets em 30 minutos).
-* 📉 A equipe online está abaixo da meta mínima.
+Focado na performance individual e da equipe nas chamadas de voz.
+* **O que faz:**
+  * Mostra quantas ligações cada agente recebeu (Inbound), fez (Outbound) e transferiu.
+  * Calcula o tempo total falado e a duração média das chamadas.
+  * Disponibiliza links diretos para escutar as **gravações** de cada ligação realizada no período.
+
+## 3. 📈 Análise de Ligações (Horários e Escala)
+**De onde vêm os dados:** Aircall.
+
+Focado em descobrir "quando" o suporte é mais acionado para ajudar a montar as escalas de trabalho.
+* **O que faz:**
+  * Revela os dias da semana e horários de pico (Mapas de Calor).
+  * Lista todas as ligações **perdidas** ou abandonadas (e se ocorreram fora do horário comercial).
+  * Identifica **clientes recorrentes** (aqueles que ligaram várias vezes em um curto período).
+
+## 4. ⭐ Painel de Qualidade (CSAT)
+**De onde vêm os dados:** Intercom.
+
+Um painel exclusivo para entender como o cliente avalia o atendimento.
+* **O que faz:**
+  * Calcula a nota média do time (CSAT Real e Ajustado).
+  * Separa as avaliações de forma visual: 😍 Positivas, 😐 Neutras e 😡 Negativas.
+  * Permite ler em detalhes os comentários deixados pelos clientes e filtrar os resultados por analista, facilitando a aplicação de feedbacks.
+
+## 5. 📟 Monitoramento Backoffice N2
+**De onde vêm os dados:** Intercom (Fila de Tecnologia).
+
+Painel de controle para demandas mais complexas que precisam de análise técnica.
+* **O que faz:**
+  * Divide os chamados em duas listas: os novos ("Período") e os antigos acumulados ("Backlog").
+  * Usa um "semáforo" (🟢/🔴) para alertar sobre chamados abertos há 5 dias ou mais.
+  * Traz atualizações automáticas de status vindas do Jira (sistema dos desenvolvedores), informando a plataforma e o nível de urgência (Severidade) do problema.
 
 ---
 
-## 🛠️ Stack Tecnológica
-
-* **Linguagem:** Python 3.11+
-* **Frontend:** Streamlit
-* **APIs:** Intercom API (v2.9), Aircall API (v1)
-* **Notificações:** Slack Webhooks
-* **Manipulação de Dados:** Pandas
-
----
-
-## ⚙️ Instalação e Configuração
-
-### 1. Pré-requisitos
-Certifique-se de ter o Python instalado. Clone o repositório e instale as dependências:
-
-```bash
-git clone [https://github.com/seu-usuario/monitor-suporte.git](https://github.com/seu-usuario/monitor-suporte.git)
-cd monitor-suporte
-pip install -r requirements.txt
-
-
-
-## 🔐 Configuração (Secrets)
-
-As credenciais não devem constar no código. Cria uma pasta `.streamlit` na raiz do projeto e um ficheiro `secrets.toml` com a seguinte estrutura:
-
-```toml
-# .streamlit/secrets.toml
-
-# --- Acesso ao Painel ---
-APP_PASSWORD = "sua_senha_de_acesso"
-
-# --- API Intercom ---
-INTERCOM_APP_ID = "seu_app_id"
-INTERCOM_TOKEN = "seu_token_intercom"
-
-# --- API Aircall (Novo v2.0) ---
-AIRCALL_ID = "seu_api_id_aircall"
-AIRCALL_TOKEN = "seu_api_token_aircall"
-
-# --- Notificações ---
-SLACK_WEBHOOK = "sua_url_do_webhook_slack"
+### ⚙️ Segurança
+O acesso às páginas é restrito por uma senha configurada pelos administradores, garantindo que apenas pessoas autorizadas vejam as métricas.
