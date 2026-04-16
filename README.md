@@ -1,4 +1,3 @@
-# 📊 Monitor Operacional Unificado - Guia Simples
 
 Este projeto é um painel de controle interativo (Dashboard) criado com Python (Streamlit) para centralizar a gestão do time de suporte. Ele se conecta automaticamente às plataformas **Intercom** (atendimento por texto/tickets) e **Aircall** (atendimento telefônico).
 
