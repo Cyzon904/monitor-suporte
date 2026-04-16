@@ -71,7 +71,7 @@ def logout_button():
         st.rerun()
 
 # ==========================================
-# FUNÇÕES DE API E INTEGRAÇÕES RECUPERADAS
+# FUNÇÕES DE API E INTEGRAÇÕES
 # ==========================================
 
 def make_api_request(method, url, json=None, params=None, max_retries=3):
