@@ -176,8 +176,7 @@ def carregar_tickets_mongo(termo_busca=None):
 def logout_button():
     """Renderiza um botão de sair e limpa a sessão/cookie do usuário."""
     if st.button("Sair do Sistema 👋", use_container_width=True):
-        # Pega o gerenciador de cookies
-        cookie_manager = get_cookie_manager()
+        cookie_manager = get_cookie_manager(chave="logout_cookie") 
         
         # Deleta o cookie de autenticação
         cookie_manager.delete("monitor_auth")
