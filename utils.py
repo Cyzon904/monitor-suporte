@@ -5,8 +5,9 @@ import pymongo
 import datetime
 import extra_streamlit_components as stx
 
-def get_cookie_manager(chave):
-    return stx.CookieManager(key=chave)
+def get_cookie_manager():
+    # Sem o st.cache_resource aqui e com uma chave de identificação
+    return stx.CookieManager(key="auth_cookie_manager")
 
 def check_password():
     """Gerencia a autenticacao via secrets e guarda a sessao em Cookies."""
@@ -14,7 +15,7 @@ def check_password():
         st.error("ERRO: Configure 'APP_PASSWORD' no ficheiro .streamlit/secrets.toml")
         return False
 
-    cookie_manager = get_cookie_manager(chave="login_cookie")
+    cookie_manager = get_cookie_manager()
     senha_correta = st.secrets["APP_PASSWORD"]
 
     # 1. Verifica se o cookie ja esta guardado no navegador
@@ -174,24 +175,14 @@ def carregar_tickets_mongo(termo_busca=None):
     return list(cursor)
 
 def logout_button():
-    """Renderiza um botão de sair e limpa a sessão/cookie do usuário."""
-    if st.button("Sair do Sistema 👋", use_container_width=True):
-        # 1. Instanciamos o gerenciador usando a chave específica de logout
-        cookie_manager = get_cookie_manager(chave="logout_cookie")
+    """Desenha um botão de sair na barra lateral"""
+    # Linha divisória para separar dos filtros
+    st.sidebar.markdown("---") 
+    
+    if st.sidebar.button("🚪 Sair do Sistema"):
+        # Limpa as chaves de autenticação
+        st.session_state["password_correct"] = False
+        st.session_state["user_role"] = None
         
-        # 2. Tentamos deletar o cookie
-        # O bloco try/except evita que o sistema trave se o cookie já não existir
-        try:
-            cookie_manager.delete("monitor_auth")
-        except Exception:
-            pass
-        
-        # 3. Limpamos absolutamente tudo da memória da sessão atual
-        st.session_state.clear()
-        
-        # 4. O segredo: esperamos meio segundo
-        # Esse tempo é necessário para o navegador processar a exclusão do cookie
-        time.sleep(0.5)
-        
-        # 5. Agora sim, recarregamos o sistema para voltar à tela de login
+        # Força o recarregamento da página para voltar ao Login
         st.rerun()
