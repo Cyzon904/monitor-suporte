@@ -173,3 +173,19 @@ def carregar_tickets_mongo(termo_busca=None):
     
     cursor = collection.find(filtro, {"_id": 0}).sort("updated_at", -1).limit(1000)
     return list(cursor)
+
+def logout_button():
+    """Renderiza um botão de sair e limpa a sessão/cookie do usuário."""
+    if st.button("Sair do Sistema 👋", use_container_width=True):
+        # Pega o gerenciador de cookies
+        cookie_manager = get_cookie_manager()
+        
+        # Deleta o cookie de autenticação
+        cookie_manager.delete("monitor_auth")
+        
+        # Reseta o estado da sessão
+        if "password_correct" in st.session_state:
+            st.session_state["password_correct"] = False
+            
+        # Recarrega a página para aplicar o bloqueio
+        st.rerun()
