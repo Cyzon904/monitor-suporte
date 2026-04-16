@@ -180,7 +180,13 @@ def logout_button():
     st.sidebar.markdown("---") 
     
     if st.sidebar.button("🚪 Sair do Sistema"):
-        # Limpa as chaves de autenticação
+        # Inicia o gerenciador de cookies
+        cookie_manager = get_cookie_manager()
+        
+        # Apaga o cookie de autenticação do navegador
+        cookie_manager.delete("monitor_auth")
+        
+        # Limpa as chaves de autenticação da memória atual
         st.session_state["password_correct"] = False
         st.session_state["user_role"] = None
         
