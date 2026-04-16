@@ -5,6 +5,7 @@ import pymongo
 import datetime
 import extra_streamlit_components as stx
 
+@st.cache_resource
 def get_cookie_manager():
     # Sem o st.cache_resource aqui e com uma chave de identificação
     return stx.CookieManager(key="auth_cookie_manager")
