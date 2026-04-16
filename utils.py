@@ -5,10 +5,8 @@ import pymongo
 import datetime
 import extra_streamlit_components as stx
 
-@st.cache_resource
-def get_cookie_manager():
-    # Sem o st.cache_resource aqui e com uma chave de identificação
-    return stx.CookieManager(key="auth_cookie_manager")
+def get_cookie_manager(chave):
+    return stx.CookieManager(key=chave)
 
 def check_password():
     """Gerencia a autenticacao via secrets e guarda a sessao em Cookies."""
@@ -16,7 +14,7 @@ def check_password():
         st.error("ERRO: Configure 'APP_PASSWORD' no ficheiro .streamlit/secrets.toml")
         return False
 
-    cookie_manager = get_cookie_manager()
+    cookie_manager = get_cookie_manager(chave="login_cookie")
     senha_correta = st.secrets["APP_PASSWORD"]
 
     # 1. Verifica se o cookie ja esta guardado no navegador
