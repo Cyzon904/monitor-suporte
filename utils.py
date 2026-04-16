@@ -6,7 +6,6 @@ import datetime
 import extra_streamlit_components as stx
 
 def get_cookie_manager():
-    # Sem o st.cache_resource aqui e com uma chave de identificação
     return stx.CookieManager(key="auth_cookie_manager")
 
 def check_password():
@@ -15,27 +14,31 @@ def check_password():
         st.error("ERRO: Configure 'APP_PASSWORD' no ficheiro .streamlit/secrets.toml")
         return False
 
-    # 1. Cria o gerenciador UMA ÚNICA VEZ por carregamento de página
     cookie_manager = get_cookie_manager()
-    
-    # 2. Guarda a referência dele na memória para o botão de logout poder usar depois
     st.session_state["_cookie_manager"] = cookie_manager
-
     senha_correta = st.secrets["APP_PASSWORD"]
 
-    if cookie_manager.get(cookie="monitor_auth") == senha_correta:
+    # NOVO: Proteção contra o "Cookie Fantasma" no momento do Logout
+    if st.session_state.get("logout_requested", False):
+        cookie_val = None # Ignora o cookie residual do navegador
+    else:
+        cookie_val = cookie_manager.get(cookie="monitor_auth")
+
+    if cookie_val == senha_correta:
         return True
 
     def password_entered():
-        # NOVO: Usa .get() para puxar a senha. Se der erro na memória, retorna "" e o sistema não quebra
         senha_digitada = st.session_state.get("password", "")
         
         if senha_digitada == senha_correta:
             st.session_state["password_correct"] = True
+            
+            # NOVO: Limpa a flag de logout quando o usuário faz um novo login
+            st.session_state["logout_requested"] = False 
+            
             validade = datetime.datetime.now() + datetime.timedelta(days=30)
             cookie_manager.set("monitor_auth", senha_correta, expires_at=validade)
             
-            # NOVO: Apaga a senha da memória com segurança, apenas se ela realmente existir
             if "password" in st.session_state:
                 del st.session_state["password"]
         else:
@@ -61,19 +64,14 @@ def logout_button():
     st.sidebar.markdown("---") 
     
     if st.sidebar.button("🚪 Sair do Sistema"):
-        # Resgata o gerenciador que foi criado lá no check_password()
         if "_cookie_manager" in st.session_state:
-            cookie_manager = st.session_state["_cookie_manager"]
-            cookie_manager.delete("monitor_auth")
-            
-            # Dá um pequeno tempo (meio segundo) para o navegador processar a exclusão do cookie
-            time.sleep(0.5)
+            st.session_state["_cookie_manager"].delete("monitor_auth")
         
-        # Limpa as chaves de autenticação da memória atual
         st.session_state["password_correct"] = False
-        st.session_state["user_role"] = None
         
-        # Força o recarregamento da página para voltar ao Login
+        # NOVO: Ativa a flag para forçar o sistema a ignorar o cookie na próxima leitura
+        st.session_state["logout_requested"] = True
+        
         st.rerun()
 
 # ==========================================
