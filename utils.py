@@ -27,11 +27,17 @@ def check_password():
         return True
 
     def password_entered():
-        if st.session_state["password"] == senha_correta:
+        # NOVO: Usa .get() para puxar a senha. Se der erro na memória, retorna "" e o sistema não quebra
+        senha_digitada = st.session_state.get("password", "")
+        
+        if senha_digitada == senha_correta:
             st.session_state["password_correct"] = True
             validade = datetime.datetime.now() + datetime.timedelta(days=30)
             cookie_manager.set("monitor_auth", senha_correta, expires_at=validade)
-            del st.session_state["password"]
+            
+            # NOVO: Apaga a senha da memória com segurança, apenas se ela realmente existir
+            if "password" in st.session_state:
+                del st.session_state["password"]
         else:
             st.session_state["password_correct"] = False
 
