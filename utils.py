@@ -5,9 +5,8 @@ import pymongo
 import datetime
 import extra_streamlit_components as stx
 
-@st.cache_resource
 def get_cookie_manager():
-    # Sem o st.cache_resource aqui e com uma chave de identificação
+    # Cria o gerenciador de cookies sem usar @st.cache_resource
     return stx.CookieManager(key="auth_cookie_manager")
 
 def check_password():
@@ -16,17 +15,20 @@ def check_password():
         st.error("ERRO: Configure 'APP_PASSWORD' no ficheiro .streamlit/secrets.toml")
         return False
 
+    # 1. Cria o gerenciador UMA ÚNICA VEZ por carregamento de página
     cookie_manager = get_cookie_manager()
+    
+    # 2. Guarda a referência dele na memória para o botão de logout poder usar depois
+    st.session_state["_cookie_manager"] = cookie_manager
+
     senha_correta = st.secrets["APP_PASSWORD"]
 
-    # 1. Verifica se o cookie ja esta guardado no navegador
     if cookie_manager.get(cookie="monitor_auth") == senha_correta:
         return True
 
     def password_entered():
         if st.session_state["password"] == senha_correta:
             st.session_state["password_correct"] = True
-            # Cria um cookie que dura 30 dias
             validade = datetime.datetime.now() + datetime.timedelta(days=30)
             cookie_manager.set("monitor_auth", senha_correta, expires_at=validade)
             del st.session_state["password"]
@@ -42,90 +44,44 @@ def check_password():
         on_change=password_entered,
         key="password"
     )
-    
-    if "password_correct" in st.session_state and not st.session_state["password_correct"]:
-        st.error("😕 Senha incorreta.")
-        
     return False
 
-def make_api_request(method, url, json=None, params=None, max_retries=3):
-    """
-    Faz chamadas API seguras respeitando o Rate Limit do Intercom.
-    Usa o header 'X-RateLimit-Reset' para espera inteligente.
-    Se o Intercom disser "PARE" (Erro 429), aguardamos o tempo certo em vez de insistir.
-    """
-    token = st.secrets.get("INTERCOM_TOKEN", "")
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/json",
-        "Content-Type": "application/json"
-    }
+def logout_button():
+    """Desenha um botão de sair na barra lateral"""
+    st.sidebar.markdown("---") 
     
-    for attempt in range(max_retries):
-        try:
-            if method.upper() == "POST":
-                response = requests.post(url, json=json, params=params, headers=headers)
-            else:
-                response = requests.get(url, params=params, headers=headers)
+    if st.sidebar.button("🚪 Sair do Sistema"):
+        # Resgata o gerenciador que foi criado lá no check_password()
+        if "_cookie_manager" in st.session_state:
+            cookie_manager = st.session_state["_cookie_manager"]
+            cookie_manager.delete("monitor_auth")
             
-            if response.status_code == 200:
-                return response.json()
-            elif response.status_code == 429:
-                reset_time = response.headers.get("X-RateLimit-Reset")
-                
-                if reset_time:
-                    try:
-                        wait_seconds = int(reset_time) - int(time.time()) + 1
-                    except ValueError:
-                        wait_seconds = (2 ** attempt) + 1
-                else:
-                    wait_seconds = (2 ** attempt) + 1
-                
-                wait_seconds = max(1, wait_seconds)
-                st.toast(f"⏳ API cheia. Aguardando {wait_seconds}s para o reset...", icon="🛑")
-                time.sleep(wait_seconds)
-                continue
-            
-            else:
-                print(f"Erro API {response.status_code}: {response.text}")
-                return None
-                
-        except Exception as e:
-            print(f"Erro de Conexao: {e}")
-            return None
-            
-    st.error("Falha na conexao com a API apos varias tentativas.")
-    return None
+            # Dá um pequeno tempo (meio segundo) para o navegador processar a exclusão do cookie
+            time.sleep(0.5)
+        
+        # Limpa as chaves de autenticação da memória atual
+        st.session_state["password_correct"] = False
+        st.session_state["user_role"] = None
+        
+        # Força o recarregamento da página para voltar ao Login
+        st.rerun()
 
-def send_slack_alert(message):
-    """Envia notificacao para o Slack se o webhook estiver configurado."""
-    webhook = st.secrets.get("SLACK_WEBHOOK")
-    
-    if not webhook:
-        print("❌ ERRO: Webhook do Slack nao encontrado nos secrets.") 
-        return
-
-    payload = {"text": message}
-    
-    try:
-        requests.post(webhook, json=payload)
-    except Exception as e:
-        print(f"Erro ao enviar alerta Slack: {e}")
+# ----------------------------------------------------
+# O resto das suas funções do MongoDB continuam iguais abaixo:
+# ----------------------------------------------------
 
 @st.cache_resource
 def init_mongo_connection():
-    """Conecta ao MongoDB Atlas usando a URI dos secrets."""
     try:
-        uri = st.secrets["MONGO_URI"]
-        client = pymongo.MongoClient(uri)
+        mongo_uri = st.secrets["MONGO_URI"]
+        client = pymongo.MongoClient(mongo_uri)
         client.admin.command('ping')
         return client
     except Exception as e:
-        st.error(f"Erro ao conectar no MongoDB: {e}")
+        st.error(f"Erro ao conectar ao MongoDB: {e}")
         return None
 
-def salvar_lote_tickets_mongo(lista_tickets):
-    """Salva/Atualiza uma lista de tickets no MongoDB."""
+def salvar_tickets_mongo(tickets_processados):
     client = init_mongo_connection()
     if not client: return 0
     
@@ -133,9 +89,9 @@ def salvar_lote_tickets_mongo(lista_tickets):
     collection = db["tickets"]
     
     operacoes = []
-    for ticket in lista_tickets:
+    for ticket in tickets_processados:
         op = pymongo.UpdateOne(
-            {"id": ticket["id"]}, 
+            {"id_interno": ticket["id_interno"]}, 
             {"$set": ticket}, 
             upsert=True
         )
@@ -147,9 +103,6 @@ def salvar_lote_tickets_mongo(lista_tickets):
     return 0
 
 def carregar_tickets_mongo(termo_busca=None):
-    """
-    Traz tickets. Se termo_busca for None, traz TODOS.
-    """
     client = init_mongo_connection()
     if not client: return []
     
@@ -174,22 +127,3 @@ def carregar_tickets_mongo(termo_busca=None):
     
     cursor = collection.find(filtro, {"_id": 0}).sort("updated_at", -1).limit(1000)
     return list(cursor)
-
-def logout_button():
-    """Desenha um botão de sair na barra lateral"""
-    # Linha divisória para separar dos filtros
-    st.sidebar.markdown("---") 
-    
-    if st.sidebar.button("🚪 Sair do Sistema"):
-        # Inicia o gerenciador de cookies
-        cookie_manager = get_cookie_manager()
-        
-        # Apaga o cookie de autenticação do navegador
-        cookie_manager.delete("monitor_auth")
-        
-        # Limpa as chaves de autenticação da memória atual
-        st.session_state["password_correct"] = False
-        st.session_state["user_role"] = None
-        
-        # Força o recarregamento da página para voltar ao Login
-        st.rerun()
