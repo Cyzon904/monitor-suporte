@@ -6,7 +6,7 @@ import datetime
 import extra_streamlit_components as stx
 
 def get_cookie_manager():
-    # Cria o gerenciador de cookies sem usar @st.cache_resource
+    # Sem o st.cache_resource aqui e com uma chave de identificação
     return stx.CookieManager(key="auth_cookie_manager")
 
 def check_password():
@@ -44,6 +44,10 @@ def check_password():
         on_change=password_entered,
         key="password"
     )
+    
+    if "password_correct" in st.session_state and not st.session_state["password_correct"]:
+        st.error("😕 Senha incorreta.")
+        
     return False
 
 def logout_button():
@@ -66,22 +70,92 @@ def logout_button():
         # Força o recarregamento da página para voltar ao Login
         st.rerun()
 
-# ----------------------------------------------------
-# O resto das suas funções do MongoDB continuam iguais abaixo:
-# ----------------------------------------------------
+# ==========================================
+# FUNÇÕES DE API E INTEGRAÇÕES RECUPERADAS
+# ==========================================
+
+def make_api_request(method, url, json=None, params=None, max_retries=3):
+    """
+    Faz chamadas API seguras respeitando o Rate Limit do Intercom.
+    Usa o header 'X-RateLimit-Reset' para espera inteligente.
+    Se o Intercom disser "PARE" (Erro 429), aguardamos o tempo certo em vez de insistir.
+    """
+    token = st.secrets.get("INTERCOM_TOKEN", "")
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+        "Content-Type": "application/json"
+    }
+    
+    for attempt in range(max_retries):
+        try:
+            if method.upper() == "POST":
+                response = requests.post(url, json=json, params=params, headers=headers)
+            else:
+                response = requests.get(url, params=params, headers=headers)
+            
+            if response.status_code == 200:
+                return response.json()
+            elif response.status_code == 429:
+                reset_time = response.headers.get("X-RateLimit-Reset")
+                
+                if reset_time:
+                    try:
+                        wait_seconds = int(reset_time) - int(time.time()) + 1
+                    except ValueError:
+                        wait_seconds = (2 ** attempt) + 1
+                else:
+                    wait_seconds = (2 ** attempt) + 1
+                
+                wait_seconds = max(1, wait_seconds)
+                st.toast(f"⏳ API cheia. Aguardando {wait_seconds}s para o reset...", icon="🛑")
+                time.sleep(wait_seconds)
+                continue
+            
+            else:
+                print(f"Erro API {response.status_code}: {response.text}")
+                return None
+                
+        except Exception as e:
+            print(f"Erro de Conexao: {e}")
+            return None
+            
+    st.error("Falha na conexao com a API apos varias tentativas.")
+    return None
+
+def send_slack_alert(message):
+    """Envia notificacao para o Slack se o webhook estiver configurado."""
+    webhook = st.secrets.get("SLACK_WEBHOOK")
+    
+    if not webhook:
+        print("❌ ERRO: Webhook do Slack nao encontrado nos secrets.") 
+        return
+
+    payload = {"text": message}
+    
+    try:
+        requests.post(webhook, json=payload)
+    except Exception as e:
+        print(f"Erro ao enviar alerta Slack: {e}")
+
+# ==========================================
+# FUNÇÕES DE BANCO DE DADOS (MONGO)
+# ==========================================
 
 @st.cache_resource
 def init_mongo_connection():
+    """Conecta ao MongoDB Atlas usando a URI dos secrets."""
     try:
-        mongo_uri = st.secrets["MONGO_URI"]
-        client = pymongo.MongoClient(mongo_uri)
+        uri = st.secrets["MONGO_URI"]
+        client = pymongo.MongoClient(uri)
         client.admin.command('ping')
         return client
     except Exception as e:
-        st.error(f"Erro ao conectar ao MongoDB: {e}")
+        st.error(f"Erro ao conectar no MongoDB: {e}")
         return None
 
-def salvar_tickets_mongo(tickets_processados):
+def salvar_lote_tickets_mongo(lista_tickets):
+    """Salva/Atualiza uma lista de tickets no MongoDB."""
     client = init_mongo_connection()
     if not client: return 0
     
@@ -89,9 +163,9 @@ def salvar_tickets_mongo(tickets_processados):
     collection = db["tickets"]
     
     operacoes = []
-    for ticket in tickets_processados:
+    for ticket in lista_tickets:
         op = pymongo.UpdateOne(
-            {"id_interno": ticket["id_interno"]}, 
+            {"id": ticket["id"]}, 
             {"$set": ticket}, 
             upsert=True
         )
@@ -103,6 +177,9 @@ def salvar_tickets_mongo(tickets_processados):
     return 0
 
 def carregar_tickets_mongo(termo_busca=None):
+    """
+    Traz tickets. Se termo_busca for None, traz TODOS.
+    """
     client = init_mongo_connection()
     if not client: return []
     
