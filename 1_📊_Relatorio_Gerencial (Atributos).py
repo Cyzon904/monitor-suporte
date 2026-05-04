@@ -700,7 +700,7 @@ if 'df_final' in st.session_state:
         if "Ticket Backoffice" in df_t.columns:
             if filtro_ticket == "Apenas Atendimentos Normais":
                 df_t = df_t[df_t["Ticket Backoffice"] == "Não"]
-            elif filtro_ticket == "Apenas Conversas com Ticket N2":
+            elif filtro_ticket == "Apenas Conversas com Ticket":
                 df_t = df_t[df_t["Ticket Backoffice"] == "Sim"]
 
         col_res = "Tempo Resolução (seg)"
