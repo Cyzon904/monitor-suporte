@@ -691,7 +691,7 @@ if 'df_final' in st.session_state:
         # Novo seletor visual para a equipe
         filtro_ticket = st.radio(
             "Visualizar tempo de resolução de:",
-            ["Apenas Atendimentos Normais", "Apenas Conversas com Ticket N2", "Visão Geral"],
+            ["Apenas Atendimentos Normais", "Apenas Conversas com Ticket", "Visão Geral"],
             horizontal=True
         )
         
