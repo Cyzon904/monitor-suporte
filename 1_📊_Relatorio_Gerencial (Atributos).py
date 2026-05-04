@@ -119,15 +119,16 @@ def process_data(conversas, mapping, admin_map):
         admin_id = c.get('admin_assignee_id')
         assignee_name = admin_map.get(str(admin_id), f"ID {admin_id}") if admin_id else "Não atribuído"
 
-        # NOVA REGRA: Pega o ID da Equipe
+        # Pega o ID da Equipe
         team_id = c.get('team_assignee_id')
         nome_equipe = str(team_id) if team_id else "Sem equipe"
+        
         # Captura e traduz o estado nativo da conversa
         estado_raw = c.get('state', '')
         mapa_estados = {'closed': 'Fechada', 'open': 'Aberta', 'snoozed': 'Pausada'}
         estado_pt = mapa_estados.get(estado_raw, estado_raw.capitalize())
 
-        # Identifica a origem (quem mandou a primeira mensagem) de forma segura
+        # Identifica a origem da primeira mensagem
         source = c.get('source') or {}
         author = source.get('author') or {}
         autor_tipo = author.get('type', '')
@@ -137,6 +138,19 @@ def process_data(conversas, mapping, admin_map):
         else:
             origem = "Receptiva (Cliente)"
 
+        # NOVA REGRA: Verifica se existe ticket de backoffice atrelado
+        tem_ticket = "Não"
+        
+        objetos_vinculados = c.get('linked_objects', {}).get('data', [])
+        for obj in objetos_vinculados:
+            if obj.get('type') == 'ticket':
+                tem_ticket = "Sim"
+                break
+                
+        if tem_ticket == "Não" and c.get('tickets'):
+            tem_ticket = "Sim"
+
+        # Estatísticas de tempo
         stats = c.get('statistics') or {}
         time_reply_sec = stats.get('time_to_admin_reply') or stats.get('response_time')
         time_close_sec = stats.get('time_to_close')
@@ -144,6 +158,7 @@ def process_data(conversas, mapping, admin_map):
             if stats.get('last_close_at') and c.get('created_at'):
                 time_close_sec = stats.get('last_close_at') - c.get('created_at')
 
+        # Montagem da linha
         row = {
             "ID": c['id'],
             "timestamp_real": c['created_at'], 
@@ -158,14 +173,17 @@ def process_data(conversas, mapping, admin_map):
             "Tempo Resposta": format_sla_string(time_reply_sec),
             "Tempo Resolução": format_sla_string(time_close_sec),
             "CSAT Nota": (c.get('conversation_rating') or {}).get('rating'),
-            "CSAT Comentario": (c.get('conversation_rating') or {}).get('remark')
+            "CSAT Comentario": (c.get('conversation_rating') or {}).get('remark'),
+            "Ticket Backoffice": tem_ticket
         }
         
         attrs = c.get('custom_attributes', {})
         for key, value in attrs.items():
             nome_bonito = mapping.get(key)
-            if nome_bonito: row[nome_bonito] = value
-            else: row[key] = value
+            if nome_bonito: 
+                row[nome_bonito] = value
+            else: 
+                row[key] = value
         rows.append(row)
     
     df = pd.DataFrame(rows)
@@ -670,9 +688,24 @@ if 'df_final' in st.session_state:
 
     if aba_selecionada == "⏱️ SLA":
         st.header("Análise de Tempo")
+        # Novo seletor visual para a equipe
+        filtro_ticket = st.radio(
+            "Visualizar tempo de resolução de:",
+            ["Apenas Atendimentos Normais", "Apenas Conversas com Ticket N2", "Visão Geral"],
+            horizontal=True
+        )
+        
+        # Aplica o filtro na base
+        df_t = df.copy()
+        if "Ticket Backoffice" in df_t.columns:
+            if filtro_ticket == "Apenas Atendimentos Normais":
+                df_t = df_t[df_t["Ticket Backoffice"] == "Não"]
+            elif filtro_ticket == "Apenas Conversas com Ticket N2":
+                df_t = df_t[df_t["Ticket Backoffice"] == "Sim"]
+
         col_res = "Tempo Resolução (seg)"
-        if col_res in df.columns:
-            df_t = df.dropna(subset=[col_res])
+        if col_res in df_t.columns:
+            df_t = df_t.dropna(subset=[col_res])
             if not df_t.empty:
                 st.subheader("⚡ Velocidade por Agente")
                 tag = df_t.groupby("Atendente")[col_res].mean().reset_index().sort_values(col_res)
