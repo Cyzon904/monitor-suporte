@@ -138,20 +138,12 @@ def process_data(conversas, mapping, admin_map):
         else:
             origem = "Receptiva (Cliente)"
 
-        # NOVA REGRA: Verifica se existe ticket de backoffice N2 (Fila 14)
+        # NOVA REGRA: Verifica se existe ticket de backoffice atrelado
         tem_ticket = "Não"
         
-        # A API pode retornar os tickets em uma lista direta
-        lista_tickets = c.get('tickets', [])
-        
-        for tk in lista_tickets:
-            # O Intercom guarda o ID da fila/tipo do ticket de formas diferentes dependendo da versão
-            tk_type_id = str(tk.get('ticket_type_id', ''))
-            
-            if not tk_type_id and isinstance(tk.get('ticket_type'), dict):
-                tk_type_id = str(tk['ticket_type'].get('id', ''))
-                
-            if tk_type_id == "14":
+        objetos_vinculados = c.get('linked_objects', {}).get('data', [])
+        for obj in objetos_vinculados:
+            if obj.get('type') == 'ticket':
                 tem_ticket = "Sim"
                 break
                 
