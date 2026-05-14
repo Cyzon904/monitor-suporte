@@ -366,14 +366,14 @@ if 'df_n2' in st.session_state:
 
     st.divider()
 
-    # --- FILTROS DA TABELA ---
+# --- FILTROS DA TABELA ---
     with st.form("form_filtros_n2"):
         st.markdown("#### 🔍 Filtros da Lista Detalhada")
         
-        cf1, cf2, cf3, cf4 = st.columns(4)
+        # Mudamos para 5 colunas
+        cf1, cf2, cf3, cf4, cf5 = st.columns(5)
         
         with cf1:
-            # Adicionei o .dropna() em todos para garantir que valores nulos não quebrem o código
             opcoes_analista = sorted(df['Analista N2'].dropna().astype(str).unique())
             filtro_analista = st.multiselect("Analista N2", options=opcoes_analista)
             
@@ -388,13 +388,17 @@ if 'df_n2' in st.session_state:
         with cf4:
             opcoes_sev = sorted(df['Severidade'].dropna().astype(str).unique())
             filtro_sev = st.multiselect("Severidade", options=opcoes_sev)
+            
+        with cf5:
+            # Novo campo de busca por palavra-chave
+            filtro_texto = st.text_input("Buscar palavra-chave")
 
-        # O botão DEVE ficar alinhado aqui dentro do bloco "with st.form"
         btn_aplicar = st.form_submit_button("✅ Aplicar Filtros")
 
-    # Faço uma cópia só para a tabela, assim não estrago os gráficos lá de cima
+    # Faço uma cópia só para a tabela
     df_exibicao = df.copy()
 
+    # Aplicando os filtros
     if filtro_analista:
         df_exibicao = df_exibicao[df_exibicao['Analista N2'].isin(filtro_analista)]
     if filtro_jira:
@@ -403,6 +407,14 @@ if 'df_n2' in st.session_state:
         df_exibicao = df_exibicao[df_exibicao['Plataforma'].isin(filtro_plat)]
     if filtro_sev:
         df_exibicao = df_exibicao[df_exibicao['Severidade'].isin(filtro_sev)]
+        
+    # Aplicando a busca por texto
+    if filtro_texto:
+        # Procura a palavra no Assunto ou na Empresa, ignorando maiúsculas e minúsculas
+        df_exibicao = df_exibicao[
+            df_exibicao['Assunto'].str.contains(filtro_texto, case=False, na=False) |
+            df_exibicao['Empresa'].str.contains(filtro_texto, case=False, na=False)
+        ]
 
     # --- ABAS E BOTÃO DE EXCEL ---
     # Divido o espaço para alinhar o botão do Excel bonitinho à direita
