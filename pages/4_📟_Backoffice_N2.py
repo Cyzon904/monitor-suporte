@@ -183,11 +183,12 @@ def process_tickets(tickets, admin_map):
         criador_bruto = attrs.get('Criado por', 'N/A')
         criador_limpo = str(criador_bruto).strip().lower() if criador_bruto and criador_bruto != 'N/A' else 'N/A'
 
-        # Pega o código do Jira e transforma em link se ele existir
+        # Pega o código (ex: PD-5584) e transforma na URL completa
         codigo_jira = attrs.get('Chamado no Jira', '-')
-        link_jira = f"https://produttivo.atlassian.net/browse/{codigo_jira}" if codigo_jira and codigo_jira != '-' else None
+        
+        # Se o código for válido, montamos o link. Se for '-', enviamos None para não criar link.
+        link_jira_completo = f"https://produttivo.atlassian.net/browse/{codigo_jira}" if codigo_jira and codigo_jira != '-' else None
 
-        # Montagem de todas as colunas
         row = {
             "SLA": indicador_sla,
             "ID Ticket": t.get('ticket_id'),
@@ -202,7 +203,7 @@ def process_tickets(tickets, admin_map):
             "Plataforma": attrs.get('Plataforma', '-'),
             "Severidade": attrs.get('Severidade', '-'),
             "Empresa": attrs.get('Nome da Empresa', '-'),
-            "Jira": link_jira, # <--- ATUALIZAMOS ESTA LINHA
+            "Jira": link_jira_completo, # Enviamos a URL completa aqui
             "Link Ticket": f"https://app.intercom.com/a/inbox/{WORKSPACE_ID}/inbox/conversation/{t.get('id')}?view=TableFullscreen",
             "Link Conversa Original": link_conversa
         }
@@ -435,10 +436,10 @@ if 'df_n2' in st.session_state:
         f"🗄️ Backlog Pendente ({len(df_backlog)})"
     ])
 
-    # Transformo as URLs em links clicáveis e escondo a coluna Origem
     config_colunas = {
         "SLA": st.column_config.Column(width="small"),
         "Origem": None, 
+        # A regex (.*) extrai o ID do final da URL para exibir na célula
         "Jira": st.column_config.LinkColumn("Jira", display_text=r"https://produttivo\.atlassian\.net/browse/(.*)"),
         "Link Ticket": st.column_config.LinkColumn("Link Ticket", display_text="🔗 Abrir Ticket"),
         "Link Conversa Original": st.column_config.LinkColumn("Link Conversa Original", display_text="💬 Abrir Conversa")
