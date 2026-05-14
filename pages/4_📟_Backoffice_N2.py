@@ -183,6 +183,10 @@ def process_tickets(tickets, admin_map):
         criador_bruto = attrs.get('Criado por', 'N/A')
         criador_limpo = str(criador_bruto).strip().lower() if criador_bruto and criador_bruto != 'N/A' else 'N/A'
 
+        # Pega o código do Jira e transforma em link se ele existir
+        codigo_jira = attrs.get('Chamado no Jira', '-')
+        link_jira = f"https://produttivo.atlassian.net/browse/{codigo_jira}" if codigo_jira and codigo_jira != '-' else None
+
         # Montagem de todas as colunas
         row = {
             "SLA": indicador_sla,
@@ -194,11 +198,11 @@ def process_tickets(tickets, admin_map):
             "Status Intercom": status_atual,
             "Status Jira": status_jira, 
             "Analista N2": admin_map.get(str(admin_id), "Não atribuído"),
-            "Criado por": criador_limpo, # Aplicamos a nova variável aqui
+            "Criado por": criador_limpo,
             "Plataforma": attrs.get('Plataforma', '-'),
             "Severidade": attrs.get('Severidade', '-'),
             "Empresa": attrs.get('Nome da Empresa', '-'),
-            "Jira": attrs.get('Chamado no Jira', '-'),
+            "Jira": link_jira, # <--- ATUALIZAMOS ESTA LINHA
             "Link Ticket": f"https://app.intercom.com/a/inbox/{WORKSPACE_ID}/inbox/conversation/{t.get('id')}?view=TableFullscreen",
             "Link Conversa Original": link_conversa
         }
@@ -435,6 +439,7 @@ if 'df_n2' in st.session_state:
     config_colunas = {
         "SLA": st.column_config.Column(width="small"),
         "Origem": None, 
+        "Jira": st.column_config.LinkColumn("Jira", display_text=r"https://produttivo\.atlassian\.net/browse/(.*)"),
         "Link Ticket": st.column_config.LinkColumn("Link Ticket", display_text="🔗 Abrir Ticket"),
         "Link Conversa Original": st.column_config.LinkColumn("Link Conversa Original", display_text="💬 Abrir Conversa")
     }
