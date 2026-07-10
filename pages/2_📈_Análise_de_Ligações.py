@@ -24,7 +24,8 @@ AGENTS_MAP = {
     "heloisa.atm.slv@produttivo.com.br": "7455039",
     "danielle.ghesini@produttivo.com.br": "7628368",
     "jenyffer.souza@produttivo.com.br": "8115775",
-    "bruno.braga@produttivo.com.br": "7450383"
+    "bruno.braga@produttivo.com.br": "7450383",
+    "jessica.zaruvne@produttivo.com.br": "11020708"
 }
 
 DIAS_SEMANA = {
