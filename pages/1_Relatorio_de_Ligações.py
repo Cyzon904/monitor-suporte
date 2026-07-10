@@ -22,8 +22,7 @@ AGENTS_MAP = {
     "aline.souza@produttivo.com.br": "5717251",
     "heloisa.atm.slv@produttivo.com.br": "7455039",
     "danielle.ghesini@produttivo.com.br": "7628368",
-    "jenyffer.souza@produttivo.com.br": "8115775",
-    "marcelo.misugi@produttivo.com.br": "8126602"
+    "jenyffer.souza@produttivo.com.br": "8115775"
 }
 
 def formatar_segundos(segundos):
