@@ -6,3 +6,4 @@ XlsxWriter
 pymongo
 unidecode
 extra-streamlit-components
+starlette<0.40.0
