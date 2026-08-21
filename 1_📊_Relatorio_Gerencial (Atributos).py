@@ -5,6 +5,8 @@ import time
 import plotly.express as px
 from datetime import datetime, timedelta
 from io import BytesIO
+import google.generativeai as genai
+import re
 
 # Importação do utils
 from utils import check_password, logout_button
@@ -37,6 +39,50 @@ if not INTERCOM_ACCESS_TOKEN:
 
 HEADERS = {"Authorization": f"Bearer {INTERCOM_ACCESS_TOKEN}", "Accept": "application/json"}
 
+# Configuração da IA
+try:
+    GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
+except:
+    GEMINI_API_KEY = st.sidebar.text_input("Chave da API Gemini", type="password", key="token_gemini")
+
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    
+    # Criamos a regra de ouro que a IA nunca pode quebrar
+    instrucao_sistema = """Você é um analista de suporte de qualidade sênior. O seu objetivo é analisar conversas de atendimento para identificar falhas no processo, oportunidades de melhoria e medir o nível de criticidade do cliente. Você está estritamente proibido de adicionar textos introdutórios, explicações ou narrar o seu raciocínio. Forneça apenas o texto final no formato exigido."""    
+    # Recomendado usar o flash para rapidez ou o pro para maior precisão
+    model = genai.GenerativeModel(
+        'gemini-3.1-flash-lite',
+        system_instruction=instrucao_sistema
+    )
+
+def ler_conversa_completa(c_id):
+    url = f"https://api.intercom.io/conversations/{c_id}"
+    try:
+        resp = requests.get(url, headers=HEADERS)
+        if resp.status_code == 200:
+            data = resp.json()
+            txt = f"INÍCIO: {data.get('source', {}).get('body', '')}\n"
+            for p in data.get('conversation_parts', {}).get('conversation_parts', []):
+                if p.get('body'):
+                    role = "CLIENTE" if p.get('author', {}).get('type') in ['user','lead'] else "AGENTE"
+                    txt += f"{role}: {p['body']}\n"
+            return re.sub(r'<[^>]+>', ' ', txt)
+    except:
+        pass
+    return ""
+
+def chamar_gemini_seguro(prompt):
+    if not GEMINI_API_KEY: return "⚠️ Chave da API do Gemini não configurada."
+    erro_final = ""
+    for attempt in range(3):
+        try:
+            response = model.generate_content(prompt)
+            return response.text
+        except Exception as e:
+            erro_final = str(e)
+            time.sleep(2 ** (attempt + 1))
+    return f"Falha na análise da IA. Detalhe do erro: {erro_final}"
 # Funções
 
 def format_sla_string(seconds):
@@ -138,17 +184,25 @@ def process_data(conversas, mapping, admin_map):
         else:
             origem = "Receptiva (Cliente)"
 
-        # NOVA REGRA: Verifica se existe ticket de backoffice atrelado
+        # NOVA REGRA: Verifica se existe ticket de backoffice atrelado e pega o ID
         tem_ticket = "Não"
+        lista_tickets = []
         
         objetos_vinculados = c.get('linked_objects', {}).get('data', [])
         for obj in objetos_vinculados:
             if obj.get('type') == 'ticket':
                 tem_ticket = "Sim"
-                break
+                if obj.get('id'):
+                    lista_tickets.append(str(obj.get('id')))
                 
-        if tem_ticket == "Não" and c.get('tickets'):
+        if c.get('tickets'):
             tem_ticket = "Sim"
+            for tkt in c.get('tickets'):
+                if isinstance(tkt, dict) and tkt.get('id'):
+                    if str(tkt.get('id')) not in lista_tickets:
+                        lista_tickets.append(str(tkt.get('id')))
+                        
+        id_do_ticket = ", ".join(lista_tickets) if lista_tickets else "-"
 
         # Estatísticas de tempo
         stats = c.get('statistics') or {}
@@ -174,7 +228,8 @@ def process_data(conversas, mapping, admin_map):
             "Tempo Resolução": format_sla_string(time_close_sec),
             "CSAT Nota": (c.get('conversation_rating') or {}).get('rating'),
             "CSAT Comentario": (c.get('conversation_rating') or {}).get('remark'),
-            "Ticket Backoffice": tem_ticket
+            "Ticket Backoffice": tem_ticket,
+            "ID do Ticket": id_do_ticket
         }
         
         attrs = c.get('custom_attributes', {})
@@ -734,8 +789,7 @@ if 'df_final' in st.session_state:
     if aba_selecionada == "📋 Dados":
         with st.form("form_filtros_tabela"):
             st.write("🔍 Filtros da Pesquisa")
-            # Adicionamos mais uma coluna aqui (c_eq)
-            c_eq, c1, c2, c3, c4 = st.columns(5)
+            c_eq, c1, c2, c3, c4, c5 = st.columns(6)
             
             with c_eq:
                 equipes_unicas = sorted(df["Equipe"].astype(str).unique())
@@ -771,6 +825,9 @@ if 'df_final' in st.session_state:
                 else:
                     sel_status = []
 
+            with c5:
+                sel_tem_ticket = st.multiselect("🎫 Tem Ticket?", ["Sim", "Não"])
+
             aplicar = st.form_submit_button("Aplicar Filtros")
 
         df_view = df.copy()
@@ -792,6 +849,10 @@ if 'df_final' in st.session_state:
             
         if sel_status:
             df_view = df_view[df_view["Status do atendimento"].isin(sel_status)]
+            
+        # Aplica o filtro de ticket
+        if sel_tem_ticket:
+            df_view = df_view[df_view["Ticket Backoffice"].isin(sel_tem_ticket)]
 
         c_resumo, c_botao = st.columns([4, 1])
         
@@ -802,9 +863,11 @@ if 'df_final' in st.session_state:
             excel = gerar_excel_multias(df_view, cols_usuario)
             st.download_button("📥 Baixar Excel", data=excel, file_name="relatorio_filtrado.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary", use_container_width=True)
         
-        cols_display = ["Data", "Estado", "Equipe", "Atendente", "Link", "Tempo Resolução"] + cols_usuario
+        # Adiciona as duas colunas novas na exibição da tabela
+        cols_display = ["ID", "Data", "Estado", "Equipe", "Atendente", "Link", "Tempo Resolução", "Ticket Backoffice", "ID do Ticket"] + cols_usuario
         cols_existentes = [c for c in cols_display if c in df_view.columns]
         
+        # Exibe a tabela filtrada
         st.dataframe(
             df_view[cols_existentes], 
             use_container_width=True, 
@@ -813,3 +876,54 @@ if 'df_final' in st.session_state:
                 "Link": st.column_config.LinkColumn("Link", display_text="🔗 Abrir Conversa")
             }
         )
+        
+        st.divider()
+        
+        # Área de Análise com Inteligência Artificial
+        st.subheader("🤖 Analisar Conversa com IA")
+        st.write("Copie o ID de uma conversa da tabela acima e cole aqui para gerar um resumo inteligente.")
+        
+        col_id, col_btn = st.columns([2, 1])
+        with col_id:
+            ticket_id_input = st.text_input("ID da Conversa:")
+        
+        with col_btn:
+            # Espaçamento para alinhar o botão com o campo de texto
+            st.markdown("<br>", unsafe_allow_html=True)
+            analisar_btn = st.button("Gerar Análise", type="primary", use_container_width=True)
+            
+        if analisar_btn and ticket_id_input:
+            with st.spinner("Lendo histórico e chamando a IA..."):
+                texto_ticket = ler_conversa_completa(ticket_id_input)
+                
+                if not texto_ticket:
+                    st.error("Não foi possível ler o histórico dessa conversa. Verifique o ID.")
+                else:
+                    prompt = f"""Extraia as 8 informações solicitadas desta conversa de suporte. 
+Não adicione nenhum texto além das respostas.
+
+Conversa:
+{texto_ticket}
+
+Responda EXATAMENTE com este formato, linha por linha:
+* 🎯 **Motivo do contato:** [preencha aqui]
+* 📌 **Quantos problemas relatados:** [preencha aqui]
+* 💭 **Principais dúvidas ou reclamações:** [preencha aqui]
+* 🛠️ **Ação do agente:** [preencha aqui]
+* 📞 **Finalizada por falta de contato?:** [preencha aqui]
+* 🤖 **Potencial para automação por bot?:** [preencha aqui]
+* 🚨 **Nível de criticidade:** [preencha aqui]
+* 💡 **Oportunidade de melhoria:** [preencha aqui]"""
+
+                    resposta = chamar_gemini_seguro(prompt)
+                    
+                    # A tesoura ajustada para o novo formato com asterisco
+                    if "**Motivo do contato:**" in resposta:
+                        resposta = "* 🎯 **Motivo do contato:**" + resposta.split("**Motivo do contato:**")[-1]
+                    
+                    # Truque para forçar a quebra de linha e não deixar o texto grudado
+                    resposta = resposta.replace('\n', '\n\n')
+                    
+                    st.success(f"Análise concluída para o ticket #{ticket_id_input}")
+                    with st.expander("Ver Resultado da Análise", expanded=True):
+                        st.info(resposta)
