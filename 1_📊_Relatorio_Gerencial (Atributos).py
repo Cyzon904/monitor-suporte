@@ -789,7 +789,7 @@ if 'df_final' in st.session_state:
     if aba_selecionada == "📋 Dados":
         with st.form("form_filtros_tabela"):
             st.write("🔍 Filtros da Pesquisa")
-            c_eq, c1, c2, c3, c4, c5 = st.columns(6)
+            c_eq, c1, c2, c3, c4, c5, c6 = st.columns(7)
             
             with c_eq:
                 equipes_unicas = sorted(df["Equipe"].astype(str).unique())
@@ -827,6 +827,13 @@ if 'df_final' in st.session_state:
 
             with c5:
                 sel_tem_ticket = st.multiselect("🎫 Tem Ticket?", ["Sim", "Não"])
+
+            with c6:
+                if "Versão do app" in df.columns:
+                    versoes_unicas = sorted(df["Versão do app"].dropna().astype(str).unique())
+                    sel_versao = st.multiselect("📱 Versão:", versoes_unicas)
+                else:
+                    sel_versao = []
 
             aplicar = st.form_submit_button("Aplicar Filtros")
 
