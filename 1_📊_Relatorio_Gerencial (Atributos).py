@@ -856,10 +856,13 @@ if 'df_final' in st.session_state:
             
         if sel_status:
             df_view = df_view[df_view["Status do atendimento"].isin(sel_status)]
-            
+
         # Aplica o filtro de ticket
         if sel_tem_ticket:
             df_view = df_view[df_view["Ticket Backoffice"].isin(sel_tem_ticket)]
+        
+        if sel_versao:
+            df_view = df_view[df_view["Versão do app"].isin(sel_versao)]
 
         c_resumo, c_botao = st.columns([4, 1])
         
