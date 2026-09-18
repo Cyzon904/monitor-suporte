@@ -337,7 +337,7 @@ if 'df_final' in st.session_state:
     # Seleção de Colunas
     todas_colunas = list(df.columns)
     COL_EXPANSAO = "Expansão (Passagem de bastão para CSM)"
-    sugestao = ["Tipo de Atendimento", COL_EXPANSAO, "Motivo de Contato", "Motivo 2 (Se houver)", "Status do atendimento", "Versão do app"]
+    sugestao = ["Tipo de Atendimento", COL_EXPANSAO, "Motivo de Contato", "Motivo 2 (Se houver)", "Status do atendimento", "Versão do aplicativo"]
     padrao = [c for c in sugestao if c in todas_colunas]
     ignorar = ["ID", "timestamp_real", "Data", "Link", "Atendente", "CSAT Nota", "CSAT Comentario", "Tempo Resposta (seg)", "Tempo Resolução (seg)", "Tempo Resposta", "Tempo Resolução"]
     
@@ -829,8 +829,8 @@ if 'df_final' in st.session_state:
                 sel_tem_ticket = st.multiselect("🎫 Tem Ticket?", ["Sim", "Não"])
 
             with c6:
-                if "Versão do app" in df.columns:
-                    versoes_unicas = sorted(df["Versão do app"].dropna().astype(str).unique())
+                if "Versão do aplicativo" in df.columns:
+                    versoes_unicas = sorted(df["Versão do aplicativo"].dropna().astype(str).unique())
                     sel_versao = st.multiselect("📱 Versão:", versoes_unicas)
                 else:
                     sel_versao = []
@@ -862,7 +862,7 @@ if 'df_final' in st.session_state:
             df_view = df_view[df_view["Ticket Backoffice"].isin(sel_tem_ticket)]
         
         if sel_versao:
-            df_view = df_view[df_view["Versão do app"].isin(sel_versao)]
+            df_view = df_view[df_view["Versão do aplicativo"].isin(sel_versao)]
 
         c_resumo, c_botao = st.columns([4, 1])
         
