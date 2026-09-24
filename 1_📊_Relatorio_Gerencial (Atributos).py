@@ -558,35 +558,52 @@ if 'df_final' in st.session_state:
                 st.info("Não há conversas no período filtrado que tenham os dois motivos preenchidos ao mesmo tempo.")
                 st.divider()
                 
-        st.subheader("📱 Cruzamento Triplo: Versão, Motivo Principal e Motivo 2")
+        st.divider()
+        st.subheader("📱 Cruzamento: Versão, Motivo Principal e Motivo 2")
         
-        colunas_triplas = ["Versão do aplicativo", "Motivo de Contato", "Motivo 2 (Se houver)"]
+        col_versao = "Versão do aplicativo"
+        col_m1 = "Motivo de Contato"
+        col_m2 = "Motivo 2 (Se houver)"
         
-        # Verifica se as três colunas existem no dataframe
-        if all(coluna in df.columns for coluna in colunas_triplas):
-            # Filtra apenas as linhas que possuem os três dados preenchidos
-            df_triplo = df.dropna(subset=colunas_triplas).copy()
+        # Verifica se as colunas principais existem
+        if col_versao in df.columns and (col_m1 in df.columns or col_m2 in df.columns):
+            
+            # 1. Mantém apenas as linhas que têm a versão do aplicativo preenchida
+            df_triplo = df.dropna(subset=[col_versao]).copy()
+            
+            # Garante que as colunas existam para não dar erro
+            if col_m1 not in df_triplo.columns: 
+                df_triplo[col_m1] = pd.NA
+            if col_m2 not in df_triplo.columns: 
+                df_triplo[col_m2] = pd.NA
+                
+            # 2. Exclui apenas as linhas em que os DOIS motivos estão vazios ao mesmo tempo
+            df_triplo = df_triplo.dropna(subset=[col_m1, col_m2], how='all')
             
             if not df_triplo.empty:
-                # Agrupa e conta o volume para cada combinação
-                agrupamento = df_triplo.groupby(colunas_triplas).size().reset_index(name='Qtd')
+                # 3. Preenche os espaços em branco para o gráfico exibir corretamente
+                df_triplo[col_m1] = df_triplo[col_m1].fillna("Motivo principal não informado")
+                df_triplo[col_m2] = df_triplo[col_m2].fillna("Sem motivo secundário")
+                
+                # 4. Agrupa os dados para criar a hierarquia do gráfico
+                colunas_hierarquia = [col_versao, col_m1, col_m2]
+                agrupamento = df_triplo.groupby(colunas_hierarquia).size().reset_index(name='Qtd')
                 
                 figura_tree = px.treemap(
                     agrupamento,
-                    path=colunas_triplas, # Ordem da hierarquia: Versão -> Motivo 1 -> Motivo 2
+                    path=colunas_hierarquia,
                     values='Qtd',
                     title="Distribuição de Motivos por Versão do Aplicativo",
                     height=650,
                     color_discrete_sequence=['#4C51BF']
                 )
                 
-                # Mostra o nome, a quantidade e a porcentagem em relação à categoria pai
                 figura_tree.update_traces(textinfo="label+value+percent parent")
                 figura_tree.update_layout(margin=dict(t=50, l=25, r=25, b=25))
                 
                 st.plotly_chart(figura_tree, use_container_width=True)
             else:
-                st.info("Não há conversas no período com a versão do app e os dois motivos preenchidos ao mesmo tempo.")
+                st.info("Não há conversas no período com a versão do app e pelo menos um motivo preenchido.")
 
     if aba_selecionada == "🔗 Top Motivos":
         col_m1, col_m2 = "Motivo de Contato", "Motivo 2 (Se houver)"
