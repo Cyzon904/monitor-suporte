@@ -508,8 +508,54 @@ if 'df_final' in st.session_state:
         
         if "Tipo de Atendimento" in df.columns and "Status do atendimento" in df.columns:
             st.plotly_chart(plot_stack(df.dropna(subset=["Tipo de Atendimento", "Status do atendimento"]), "Tipo de Atendimento", "Status do atendimento", "3. Status por Tipo de atendimento", qtd_cross), use_container_width=True)
-        
+                
         st.divider()
+        st.subheader("📱 Cruzamento: Motivos e Versão")
+        
+        col_versao = "Versão do aplicativo"
+        col_m1 = "Motivo de Contato"
+        col_m2 = "Motivo 2 (Se houver)"
+        
+        if col_versao in df.columns and (col_m1 in df.columns or col_m2 in df.columns):
+            # Mantém apenas as linhas que têm a versão do aplicativo preenchida
+            df_triplo = df.dropna(subset=[col_versao]).copy()
+            
+            if col_m1 not in df_triplo.columns: 
+                df_triplo[col_m1] = pd.NA
+            if col_m2 not in df_triplo.columns: 
+                df_triplo[col_m2] = pd.NA
+                
+            # Exclui apenas as linhas em que os dois motivos estão vazios
+            df_triplo = df_triplo.dropna(subset=[col_m1, col_m2], how='all')
+            
+            if not df_triplo.empty:
+                # Função para juntar os motivos na mesma etiqueta
+                def combinar_motivos(linha):
+                    m1 = str(linha[col_m1]) if pd.notna(linha[col_m1]) else ""
+                    m2 = str(linha[col_m2]) if pd.notna(linha[col_m2]) else ""
+                    
+                    if m1 and m2:
+                        return f"{m1} - {m2}"
+                    elif m1:
+                        return m1
+                    else:
+                        return m2
+                        
+                df_triplo["Motivo Combinado"] = df_triplo.apply(combinar_motivos, axis=1)
+                
+                # Invertemos o eixo principal e a cor para mudar a visão do gráfico
+                figura_barras = plot_stack(
+                    df_triplo, 
+                    x_col="Motivo Combinado", 
+                    color_col=col_versao, 
+                    title="4. Versão do Aplicativo por Motivo", 
+                    limit=qtd_cross
+                )
+                st.plotly_chart(figura_barras, use_container_width=True)
+            else:
+                st.info("Não há conversas no período com a versão do app e pelo menos um motivo preenchido.")
+
+    st.divider()
         
         st.subheader("🔍 Investigação de Motivos (1 vs 2)")
         
@@ -557,52 +603,6 @@ if 'df_final' in st.session_state:
             else:
                 st.info("Não há conversas no período filtrado que tenham os dois motivos preenchidos ao mesmo tempo.")
                 st.divider()
-                
-        st.divider()
-        st.subheader("📱 Cruzamento: Motivos e Versão")
-        
-        col_versao = "Versão do aplicativo"
-        col_m1 = "Motivo de Contato"
-        col_m2 = "Motivo 2 (Se houver)"
-        
-        if col_versao in df.columns and (col_m1 in df.columns or col_m2 in df.columns):
-            # Mantém apenas as linhas que têm a versão do aplicativo preenchida
-            df_triplo = df.dropna(subset=[col_versao]).copy()
-            
-            if col_m1 not in df_triplo.columns: 
-                df_triplo[col_m1] = pd.NA
-            if col_m2 not in df_triplo.columns: 
-                df_triplo[col_m2] = pd.NA
-                
-            # Exclui apenas as linhas em que os dois motivos estão vazios
-            df_triplo = df_triplo.dropna(subset=[col_m1, col_m2], how='all')
-            
-            if not df_triplo.empty:
-                # Função para juntar os motivos na mesma etiqueta
-                def combinar_motivos(linha):
-                    m1 = str(linha[col_m1]) if pd.notna(linha[col_m1]) else ""
-                    m2 = str(linha[col_m2]) if pd.notna(linha[col_m2]) else ""
-                    
-                    if m1 and m2:
-                        return f"{m1} - {m2}"
-                    elif m1:
-                        return m1
-                    else:
-                        return m2
-                        
-                df_triplo["Motivo Combinado"] = df_triplo.apply(combinar_motivos, axis=1)
-                
-                # Invertemos o eixo principal e a cor para mudar a visão do gráfico
-                figura_barras = plot_stack(
-                    df_triplo, 
-                    x_col="Motivo Combinado", 
-                    color_col=col_versao, 
-                    title="4. Versão do Aplicativo por Motivo", 
-                    limit=qtd_cross
-                )
-                st.plotly_chart(figura_barras, use_container_width=True)
-            else:
-                st.info("Não há conversas no período com a versão do app e pelo menos um motivo preenchido.")
 
     if aba_selecionada == "🔗 Top Motivos":
         col_m1, col_m2 = "Motivo de Contato", "Motivo 2 (Se houver)"
