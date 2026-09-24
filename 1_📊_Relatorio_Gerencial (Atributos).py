@@ -555,7 +555,7 @@ if 'df_final' in st.session_state:
             else:
                 st.info("Não há conversas no período com a versão do app e pelo menos um motivo preenchido.")
 
-    st.divider()
+        st.divider()
         
         st.subheader("🔍 Investigação de Motivos (1 vs 2)")
         
