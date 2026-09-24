@@ -556,6 +556,37 @@ if 'df_final' in st.session_state:
                 st.plotly_chart(fig_foco, use_container_width=True)
             else:
                 st.info("Não há conversas no período filtrado que tenham os dois motivos preenchidos ao mesmo tempo.")
+                st.divider()
+                
+        st.subheader("📱 Cruzamento Triplo: Versão, Motivo Principal e Motivo 2")
+        
+        colunas_triplas = ["Versão do aplicativo", "Motivo de Contato", "Motivo 2 (Se houver)"]
+        
+        # Verifica se as três colunas existem no dataframe
+        if all(coluna in df.columns for coluna in colunas_triplas):
+            # Filtra apenas as linhas que possuem os três dados preenchidos
+            df_triplo = df.dropna(subset=colunas_triplas).copy()
+            
+            if not df_triplo.empty:
+                # Agrupa e conta o volume para cada combinação
+                agrupamento = df_triplo.groupby(colunas_triplas).size().reset_index(name='Qtd')
+                
+                figura_tree = px.treemap(
+                    agrupamento,
+                    path=colunas_triplas, # Ordem da hierarquia: Versão -> Motivo 1 -> Motivo 2
+                    values='Qtd',
+                    title="Distribuição de Motivos por Versão do Aplicativo",
+                    height=650,
+                    color_discrete_sequence=['#4C51BF']
+                )
+                
+                # Mostra o nome, a quantidade e a porcentagem em relação à categoria pai
+                figura_tree.update_traces(textinfo="label+value+percent parent")
+                figura_tree.update_layout(margin=dict(t=50, l=25, r=25, b=25))
+                
+                st.plotly_chart(figura_tree, use_container_width=True)
+            else:
+                st.info("Não há conversas no período com a versão do app e os dois motivos preenchidos ao mesmo tempo.")
 
     if aba_selecionada == "🔗 Top Motivos":
         col_m1, col_m2 = "Motivo de Contato", "Motivo 2 (Se houver)"
