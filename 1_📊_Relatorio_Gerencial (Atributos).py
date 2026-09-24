@@ -559,7 +559,7 @@ if 'df_final' in st.session_state:
                 st.divider()
                 
         st.divider()
-        st.subheader("📱 Cruzamento: Versão e Motivos")
+        st.subheader("📱 Cruzamento: Motivos e Versão")
         
         col_versao = "Versão do aplicativo"
         col_m1 = "Motivo de Contato"
@@ -592,12 +592,12 @@ if 'df_final' in st.session_state:
                         
                 df_triplo["Motivo Combinado"] = df_triplo.apply(combinar_motivos, axis=1)
                 
-                # Reaproveita a função plot_stack padrão do sistema
+                # Invertemos o eixo principal e a cor para mudar a visão do gráfico
                 figura_barras = plot_stack(
                     df_triplo, 
-                    x_col=col_versao, 
-                    color_col="Motivo Combinado", 
-                    title="4. Motivos por Versão do Aplicativo", 
+                    x_col="Motivo Combinado", 
+                    color_col=col_versao, 
+                    title="4. Versão do Aplicativo por Motivo", 
                     limit=qtd_cross
                 )
                 st.plotly_chart(figura_barras, use_container_width=True)
