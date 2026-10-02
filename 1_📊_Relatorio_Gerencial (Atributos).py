@@ -288,12 +288,6 @@ with st.sidebar:
     periodo = st.date_input("Período", (data_hoje - timedelta(days=7), data_hoje), format="DD/MM/YYYY")
     team_input = st.text_input("IDs dos Times:", value="2975006")
     
-    # NOVO: Filtro visual de conversas mescladas
-    filtro_mescladas = st.selectbox(
-        "Conversas Mescladas:", 
-        ["Incluir Todas", "Apenas Mescladas", "Excluir Mescladas"]
-    )
-    
     btn_run = st.button("🚀 Gerar Dados", type="primary")
     logout_button()
 
