@@ -235,10 +235,10 @@ def process_data(conversas, mapping, admin_map):
             "CSAT Nota": (c.get('conversation_rating') or {}).get('rating'),
             "CSAT Comentario": (c.get('conversation_rating') or {}).get('remark'),
             "Ticket Backoffice": tem_ticket,
-            "ID do Ticket": id_do_ticket,
-            "Mesclada": "Sim" if c.get('merged') else "Não"
+            "ID do Ticket": id_do_ticket
         }
         
+        # O script original varre os atributos e traduz os nomes
         attrs = c.get('custom_attributes', {})
         for key, value in attrs.items():
             nome_bonito = mapping.get(key)
@@ -246,6 +246,10 @@ def process_data(conversas, mapping, admin_map):
                 row[nome_bonito] = value
             else: 
                 row[key] = value
+                
+        # Agora sim, o atributo Merged já foi mapeado para dentro do row
+        row["Mesclada"] = "Sim" if row.get("Merged") == True else "Não"
+        
         rows.append(row)
     
     df = pd.DataFrame(rows)
