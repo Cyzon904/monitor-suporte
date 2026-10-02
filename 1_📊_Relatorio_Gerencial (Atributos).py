@@ -300,7 +300,7 @@ if btn_run:
         admins_map = get_all_admins()
         
         # NOVO: Passando o filtro selecionado para a função
-        raw = fetch_conversations(start, end, ids_times, filtro_mescladas)
+        raw = fetch_conversations(start, end, ids_times)
         
         if raw:
             df = process_data(raw, mapa, admins_map)
