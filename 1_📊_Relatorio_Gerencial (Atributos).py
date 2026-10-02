@@ -355,7 +355,9 @@ if 'df_final' in st.session_state:
     # Seleção de Colunas
     todas_colunas = list(df.columns)
     COL_EXPANSAO = "Expansão (Passagem de bastão para CSM)"
-    sugestao = ["Tipo de Atendimento", COL_EXPANSAO, "Motivo de Contato", "Motivo 2 (Se houver)", "Status do atendimento", "Versão do aplicativo"]
+    
+    sugestao = ["Mesclada", "Tipo de Atendimento", COL_EXPANSAO, "Motivo de Contato", "Motivo 2 (Se houver)", "Status do atendimento", "Versão do aplicativo"]
+    
     padrao = [c for c in sugestao if c in todas_colunas]
     ignorar = ["ID", "timestamp_real", "Data", "Link", "Atendente", "CSAT Nota", "CSAT Comentario", "Tempo Resposta (seg)", "Tempo Resolução (seg)", "Tempo Resposta", "Tempo Resolução"]
     
