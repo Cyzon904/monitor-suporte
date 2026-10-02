@@ -133,12 +133,6 @@ def fetch_conversations(start_date, end_date, team_ids=None, regra_mesclada="Inc
     if team_ids:
         query_rules.append({"field": "team_assignee_id", "operator": "IN", "value": team_ids})
 
-    # NOVO: Aplica o filtro de conversas mescladas na query da API
-    if regra_mesclada == "Apenas Mescladas":
-        query_rules.append({"field": "merged", "operator": "=", "value": True})
-    elif regra_mesclada == "Excluir Mescladas":
-        query_rules.append({"field": "merged", "operator": "=", "value": False})
-
     payload = {"query": {"operator": "AND", "value": query_rules}, "pagination": {"per_page": 150}}
         
     conversas = []
@@ -342,6 +336,12 @@ if 'df_final' in st.session_state:
             options=todas_origens,
             default=todas_origens
         )
+
+        # NOVO FILTRO
+        filtro_mescladas = st.selectbox(
+            "Conversas Mescladas:", 
+            ["Incluir Todas", "Apenas Mescladas", "Excluir Mescladas"]
+        )
     
     # Aplica os filtros no dataframe principal
     df = df_completo.copy()
@@ -351,8 +351,12 @@ if 'df_final' in st.session_state:
         
     if origens_selecionadas:
         df = df[df["Origem"].isin(origens_selecionadas)]
-        
-    st.divider()
+
+    # APLICA A REGRA DO SEU FILTRO AQUI
+    if filtro_mescladas == "Apenas Mescladas":
+        df = df[df["Mesclada"] == "Sim"]
+    elif filtro_mescladas == "Excluir Mescladas":
+        df = df[df["Mesclada"] == "Não"]
     
     # Seleção de Colunas
     todas_colunas = list(df.columns)
