@@ -40,7 +40,6 @@ def fetch_conversations(start_date, end_date):
     ts_start = int(datetime.combine(start_date, datetime.min.time()).timestamp())
     ts_end = int(datetime.combine(end_date, datetime.max.time()).timestamp())
     
-    # Usamos o updated_at para capturar chamados antigos que receberam mesclagens recentes
     query_rules = [
         {"field": "updated_at", "operator": ">", "value": ts_start},
         {"field": "updated_at", "operator": "<", "value": ts_end}
@@ -71,6 +70,16 @@ def fetch_conversations(start_date, end_date):
     status_text.empty()
     return conversas
 
+def ler_conversa_individual(c_id):
+    url = f"https://api.intercom.io/conversations/{c_id}"
+    try:
+        resp = requests.get(url, headers=HEADERS)
+        if resp.status_code == 200:
+            return resp.json()
+    except:
+        pass
+    return None
+
 # Interface e Filtros
 with st.sidebar:
     st.header("Filtros")
@@ -81,18 +90,19 @@ with st.sidebar:
 if btn_run:
     start, end = periodo
     
-    with st.spinner("A cruzar os dados pelas ligações nativas do Intercom..."):
+    with st.spinner("A cruzar os dados e a validar mesclagens reais..."):
         mapa_atributos = get_attribute_definitions()
         todas_conversas = fetch_conversations(start, end)
         
+        # Dicionário para acesso ultrarrápido às conversas já baixadas
+        dict_conversas = {str(c['id']): c for c in todas_conversas}
         linhas = []
         
         for c in todas_conversas:
-            # Procura por outras conversas dentro da estrutura de linked_objects
+            # Procura por outras conversas ligadas na estrutura de linked_objects
             objetos_vinculados = c.get('linked_objects', {}).get('data', [])
             ids_secundarios = [str(obj['id']) for obj in objetos_vinculados if obj.get('type') == 'conversation' and obj.get('id')]
             
-            # Se existirem ligações, esta conversa atual é o Destino (Principal)
             if ids_secundarios:
                 id_destino = str(c['id'])
                 data_destino = (datetime.fromtimestamp(c['created_at']) - timedelta(hours=3)).strftime("%d/%m/%Y %H:%M")
@@ -107,25 +117,45 @@ if btn_run:
                         motivo_destino = value
                         break
 
-                # Cria uma linha separada para cada conversa secundária vinculada
                 for id_origem in ids_secundarios:
-                    link_origem = f"https://app.intercom.com/a/inbox/{WORKSPACE_ID}/inbox/conversation/{id_origem}"
+                    # VALIDAÇÃO BLINDADA: Verificar se a conversa secundária é realmente uma mesclagem
+                    secundaria = dict_conversas.get(id_origem)
+                    if not secundaria:
+                        secundaria = ler_conversa_individual(id_origem)
+                        
+                    if secundaria:
+                        is_closed = secundaria.get('state') == 'closed'
+                        is_merged = secundaria.get('custom_attributes', {}).get('Merged') == True
+                        
+                        # Se não tiver o atributo Merged, confirmamos pelas tags como alternativa
+                        if not is_merged:
+                            tags = secundaria.get('tags', {}).get('tags', [])
+                            for t in tags:
+                                if 'duplicada' in str(t.get('name', '')).lower() or 'merged' in str(t.get('name', '')).lower():
+                                    is_merged = True
 
-                    linhas.append({
-                        "Data Principal": data_destino,
-                        "ID Origem (Mesclada)": id_origem,
-                        "ID Destino (Principal)": id_destino,
-                        "Motivo Final (Destino)": motivo_destino,
-                        "Abrir Origem": link_origem,
-                        "Abrir Destino": link_destino
-                    })
+                        # Só adiciona ao relatório se estiver fechada e confirmada como mesclada real
+                        if is_closed and is_merged:
+                            data_origem = (datetime.fromtimestamp(secundaria['created_at']) - timedelta(hours=3)).strftime("%d/%m/%Y %H:%M")
+                            link_origem = f"https://app.intercom.com/a/inbox/{WORKSPACE_ID}/inbox/conversation/{id_origem}"
+
+                            linhas.append({
+                                "Data Original": data_origem,
+                                "ID Origem (Mesclada)": id_origem,
+                                "ID Destino (Principal)": id_destino,
+                                "Motivo Final (Destino)": motivo_destino,
+                                "Abrir Origem": link_origem,
+                                "Abrir Destino": link_destino
+                            })
                     
         if not linhas:
             st.success("Nenhuma conversa mesclada encontrada neste período.")
             st.stop()
             
         df_final = pd.DataFrame(linhas)
-        st.success(f"Rastreamento concluído. Encontradas {len(df_final)} mesclagens nativas.")
+        df_final = df_final.sort_values(by="Data Original", ascending=False)
+        
+        st.success(f"Rastreamento concluído. Encontradas {len(df_final)} mesclagens nativas reais.")
         
         st.dataframe(
             df_final,
