@@ -235,7 +235,7 @@ def process_data(conversas, mapping, admin_map):
             "CSAT Nota": (c.get('conversation_rating') or {}).get('rating'),
             "CSAT Comentario": (c.get('conversation_rating') or {}).get('remark'),
             "Ticket Backoffice": tem_ticket,
-            "ID do Ticket": id_do_ticket
+            "ID do Ticket": id_do_ticket,
             "Mesclada": "Sim" if c.get('merged') else "Não"
         }
         
