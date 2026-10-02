@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import requests
 import time
+import html
+import re
 from datetime import datetime, timedelta
 
 # Configurações iniciais
@@ -23,6 +25,13 @@ if not INTERCOM_ACCESS_TOKEN:
     st.stop()
 
 HEADERS = {"Authorization": f"Bearer {INTERCOM_ACCESS_TOKEN}", "Accept": "application/json"}
+
+# Termos de mesclagem extraídos do exemplo oficial
+MERGE_TERMS = ("merge", "merged", "mescl", "mesclad")
+
+def normalize_text(value):
+    text = html.unescape(re.sub(r"<[^>]*>", " ", value or ""))
+    return " ".join(text.split()).casefold()
 
 # Funções da API
 @st.cache_data(ttl=3600)
@@ -80,6 +89,24 @@ def ler_conversa_individual(c_id):
         pass
     return None
 
+def validar_nota_mesclagem(conversa_principal, id_secundario):
+    """Verifica se existe uma nota na conversa principal contendo o ID da conversa mesclada."""
+    partes = conversa_principal.get("conversation_parts", {}).get("conversation_parts", [])
+    for part in partes:
+        if part.get("part_type") != "note":
+            continue
+
+        body = part.get("body") or ""
+        searchable = normalize_text(body)
+        has_merge_text = any(term in searchable for term in MERGE_TERMS)
+        has_secondary_id = re.search(
+            rf"(?<!\d){re.escape(str(id_secundario))}(?!\d)",
+            html.unescape(body),
+        )
+        if has_merge_text and has_secondary_id:
+            return True
+    return False
+
 # Interface e Filtros
 with st.sidebar:
     st.header("Filtros")
@@ -90,18 +117,20 @@ with st.sidebar:
 if btn_run:
     start, end = periodo
     
-    with st.spinner("A cruzar os dados e a validar mesclagens reais..."):
+    with st.spinner("A cruzar os dados e a aplicar regras rígidas de mesclagem..."):
         mapa_atributos = get_attribute_definitions()
         todas_conversas = fetch_conversations(start, end)
-        
-        # Dicionário para acesso ultrarrápido às conversas já baixadas
-        dict_conversas = {str(c['id']): c for c in todas_conversas}
         linhas = []
         
         for c in todas_conversas:
-            # Procura por outras conversas ligadas na estrutura de linked_objects
+            # LÓGICA ATUALIZADA: Ignora itens categorizados como 'Back-office'
             objetos_vinculados = c.get('linked_objects', {}).get('data', [])
-            ids_secundarios = [str(obj['id']) for obj in objetos_vinculados if obj.get('type') == 'conversation' and obj.get('id')]
+            ids_secundarios = [
+                str(obj['id']) for obj in objetos_vinculados 
+                if obj.get('type') == 'conversation' 
+                and obj.get('category') != 'Back-office' 
+                and obj.get('id')
+            ]
             
             if ids_secundarios:
                 id_destino = str(c['id'])
@@ -117,25 +146,18 @@ if btn_run:
                         motivo_destino = value
                         break
 
-                for id_origem in ids_secundarios:
-                    # VALIDAÇÃO BLINDADA: Verificar se a conversa secundária é realmente uma mesclagem
-                    secundaria = dict_conversas.get(id_origem)
-                    if not secundaria:
-                        secundaria = ler_conversa_individual(id_origem)
-                        
-                    if secundaria:
-                        is_closed = secundaria.get('state') == 'closed'
-                        is_merged = secundaria.get('custom_attributes', {}).get('Merged') == True
-                        
-                        # Se não tiver o atributo Merged, confirmamos pelas tags como alternativa
-                        if not is_merged:
-                            tags = secundaria.get('tags', {}).get('tags', [])
-                            for t in tags:
-                                if 'duplicada' in str(t.get('name', '')).lower() or 'merged' in str(t.get('name', '')).lower():
-                                    is_merged = True
+                # Baixa o detalhe da conversa principal UMA única vez para validar as notas
+                detalhe_principal = ler_conversa_individual(id_destino)
+                if not detalhe_principal:
+                    continue
 
-                        # Só adiciona ao relatório se estiver fechada e confirmada como mesclada real
-                        if is_closed and is_merged:
+                for id_origem in ids_secundarios:
+                    # VALIDAÇÃO EXTRA: A conversa principal deve ter a nota referenciando este ID de origem
+                    if validar_nota_mesclagem(detalhe_principal, id_origem):
+                        
+                        # Verifica se a conversa secundária realmente está com o estado 'closed'
+                        secundaria = ler_conversa_individual(id_origem)
+                        if secundaria and secundaria.get('state') == 'closed':
                             data_origem = (datetime.fromtimestamp(secundaria['created_at']) - timedelta(hours=3)).strftime("%d/%m/%Y %H:%M")
                             link_origem = f"https://app.intercom.com/a/inbox/{WORKSPACE_ID}/inbox/conversation/{id_origem}"
 
