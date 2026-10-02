@@ -2,17 +2,20 @@ import streamlit as st
 import pandas as pd
 import requests
 import time
-import html
-import re
 from datetime import datetime, timedelta
 
 # Configurações iniciais
 st.set_page_config(page_title="Rastreio de Mescladas", page_icon="🔗", layout="wide")
 
 st.title("🔗 Rastreio de Conversas Mescladas")
-st.write("Descobre o destino das conversas duplicadas através das ligações nativas do Intercom.")
+st.write("Descobre o destino das conversas duplicadas através do cruzamento exato de eventos do sistema.")
 
 WORKSPACE_ID = "xwvpdtlu"
+
+# Constantes de Eventos de Mesclagem baseadas no exemplo 3
+MERGE_PRIMARY_PART = "merged_primary_conversation"
+MERGE_SECONDARY_PART = "merged_secondary_conversation"
+MERGE_EVENT_TOLERANCE_SECONDS = 2
 
 # Autenticação
 try:
@@ -25,13 +28,6 @@ if not INTERCOM_ACCESS_TOKEN:
     st.stop()
 
 HEADERS = {"Authorization": f"Bearer {INTERCOM_ACCESS_TOKEN}", "Accept": "application/json"}
-
-# Termos de mesclagem extraídos do exemplo oficial
-MERGE_TERMS = ("merge", "merged", "mescl", "mesclad")
-
-def normalize_text(value):
-    text = html.unescape(re.sub(r"<[^>]*>", " ", value or ""))
-    return " ".join(text.split()).casefold()
 
 # Funções da API
 @st.cache_data(ttl=3600)
@@ -89,23 +85,14 @@ def ler_conversa_individual(c_id):
         pass
     return None
 
-def validar_nota_mesclagem(conversa_principal, id_secundario):
-    """Verifica se existe uma nota na conversa principal contendo o ID da conversa mesclada."""
-    partes = conversa_principal.get("conversation_parts", {}).get("conversation_parts", [])
-    for part in partes:
-        if part.get("part_type") != "note":
-            continue
-
-        body = part.get("body") or ""
-        searchable = normalize_text(body)
-        has_merge_text = any(term in searchable for term in MERGE_TERMS)
-        has_secondary_id = re.search(
-            rf"(?<!\d){re.escape(str(id_secundario))}(?!\d)",
-            html.unescape(body),
-        )
-        if has_merge_text and has_secondary_id:
-            return True
-    return False
+def obter_tempos_evento(conversa_json, tipo_evento):
+    """Extrai todos os timestamps do evento procurado dentro da conversa."""
+    partes = conversa_json.get("conversation_parts", {}).get("conversation_parts", [])
+    return [
+        part["created_at"]
+        for part in partes
+        if part.get("part_type") == tipo_evento and part.get("created_at") is not None
+    ]
 
 # Interface e Filtros
 with st.sidebar:
@@ -117,59 +104,91 @@ with st.sidebar:
 if btn_run:
     start, end = periodo
     
-    with st.spinner("A cruzar os dados e a aplicar regras rígidas de mesclagem..."):
+    with st.spinner("A cruzar os dados matematicamente por eventos do sistema..."):
         mapa_atributos = get_attribute_definitions()
         todas_conversas = fetch_conversations(start, end)
-        linhas = []
         
+        # Filtra as candidatas a secundárias para otimizar os pedidos da API
+        # Procuramos as fechadas que tenham o atributo Merged = True ou tags de duplicada
+        candidatas_secundarias = []
         for c in todas_conversas:
-            # LÓGICA ATUALIZADA: Ignora itens categorizados como 'Back-office'
-            objetos_vinculados = c.get('linked_objects', {}).get('data', [])
-            ids_secundarios = [
-                str(obj['id']) for obj in objetos_vinculados 
-                if obj.get('type') == 'conversation' 
-                and obj.get('category') != 'Back-office' 
-                and obj.get('id')
+            if c.get('state') == 'closed':
+                is_merged = c.get('custom_attributes', {}).get('Merged') == True
+                if not is_merged:
+                    tags = c.get('tags', {}).get('tags', [])
+                    for t in tags:
+                        if 'duplicada' in str(t.get('name', '')).lower() or 'merged' in str(t.get('name', '')).lower():
+                            is_merged = True
+                if is_merged:
+                    candidatas_secundarias.append(c)
+
+        linhas = []
+        barra_progresso = st.progress(0)
+        
+        for index, c_sec in enumerate(candidatas_secundarias):
+            id_secundario = str(c_sec['id'])
+            
+            # Carrega o histórico da conversa secundária para achar o tempo exato do evento
+            detalhe_secundaria = ler_conversa_individual(id_secundario)
+            if not detalhe_secundaria:
+                continue
+                
+            tempos_secundarios = obter_tempos_evento(detalhe_secundaria, MERGE_SECONDARY_PART)
+            if not tempos_secundarios:
+                continue
+                
+            # Assume o evento de mesclagem mais recente, caso haja mais de um
+            tempo_mesclagem_alvo = tempos_secundarios[-1]
+            
+            # Procura candidatos primários na nossa lista rápida.
+            # O Intercom atualiza a conversa no momento da mesclagem, então o updated_at deve estar próximo.
+            candidatos_primarios = [
+                c for c in todas_conversas 
+                if str(c['id']) != id_secundario 
+                and abs(c['updated_at'] - tempo_mesclagem_alvo) <= 300 # Tolerância de 5 minutos no cabeçalho
             ]
             
-            if ids_secundarios:
-                id_destino = str(c['id'])
-                data_destino = (datetime.fromtimestamp(c['created_at']) - timedelta(hours=3)).strftime("%d/%m/%Y %H:%M")
-                link_destino = f"https://app.intercom.com/a/inbox/{WORKSPACE_ID}/inbox/conversation/{id_destino}"
-                
-                # Extrai o motivo final preenchido nesta conversa principal
-                motivo_destino = "Não classificado"
-                atributos_destino = c.get('custom_attributes', {})
-                for key, value in atributos_destino.items():
-                    nome_bonito = mapa_atributos.get(key, key)
-                    if "Motivo de Contato" in nome_bonito and value:
-                        motivo_destino = value
-                        break
-
-                # Baixa o detalhe da conversa principal UMA única vez para validar as notas
-                detalhe_principal = ler_conversa_individual(id_destino)
-                if not detalhe_principal:
+            id_destino = None
+            motivo_destino = "Não classificado"
+            
+            # Verifica o par matemático
+            for c_prim in candidatos_primarios:
+                detalhe_primario = ler_conversa_individual(str(c_prim['id']))
+                if not detalhe_primario:
                     continue
-
-                for id_origem in ids_secundarios:
-                    # VALIDAÇÃO EXTRA: A conversa principal deve ter a nota referenciando este ID de origem
-                    if validar_nota_mesclagem(detalhe_principal, id_origem):
-                        
-                        # Verifica se a conversa secundária realmente está com o estado 'closed'
-                        secundaria = ler_conversa_individual(id_origem)
-                        if secundaria and secundaria.get('state') == 'closed':
-                            data_origem = (datetime.fromtimestamp(secundaria['created_at']) - timedelta(hours=3)).strftime("%d/%m/%Y %H:%M")
-                            link_origem = f"https://app.intercom.com/a/inbox/{WORKSPACE_ID}/inbox/conversation/{id_origem}"
-
-                            linhas.append({
-                                "Data Original": data_origem,
-                                "ID Origem (Mesclada)": id_origem,
-                                "ID Destino (Principal)": id_destino,
-                                "Motivo Final (Destino)": motivo_destino,
-                                "Abrir Origem": link_origem,
-                                "Abrir Destino": link_destino
-                            })
                     
+                tempos_primarios = obter_tempos_evento(detalhe_primario, MERGE_PRIMARY_PART)
+                
+                # Regra principal: A diferença exata entre os eventos ocultos é menor que 2 segundos?
+                se_corresponde = any(abs(t_prim - tempo_mesclagem_alvo) <= MERGE_EVENT_TOLERANCE_SECONDS for t_prim in tempos_primarios)
+                
+                if se_corresponde:
+                    id_destino = str(c_prim['id'])
+                    
+                    # Extrai o motivo da conversa principal confirmada
+                    atributos_destino = detalhe_primario.get('custom_attributes', {})
+                    for key, value in atributos_destino.items():
+                        nome_bonito = mapa_atributos.get(key, key)
+                        if "Motivo de Contato" in nome_bonito and value:
+                            motivo_destino = value
+                            break
+                    break # Par encontrado, para a procura deste ID
+
+            if id_destino:
+                data_origem = (datetime.fromtimestamp(detalhe_secundaria['created_at']) - timedelta(hours=3)).strftime("%d/%m/%Y %H:%M")
+                
+                linhas.append({
+                    "Data Original": data_origem,
+                    "ID Origem (Mesclada)": id_secundario,
+                    "ID Destino (Principal)": id_destino,
+                    "Motivo Final (Destino)": motivo_destino,
+                    "Abrir Origem": f"https://app.intercom.com/a/inbox/{WORKSPACE_ID}/inbox/conversation/{id_secundario}",
+                    "Abrir Destino": f"https://app.intercom.com/a/inbox/{WORKSPACE_ID}/inbox/conversation/{id_destino}"
+                })
+                
+            barra_progresso.progress((index + 1) / len(candidatas_secundarias))
+            time.sleep(0.1)
+            
         if not linhas:
             st.success("Nenhuma conversa mesclada encontrada neste período.")
             st.stop()
@@ -177,7 +196,7 @@ if btn_run:
         df_final = pd.DataFrame(linhas)
         df_final = df_final.sort_values(by="Data Original", ascending=False)
         
-        st.success(f"Rastreamento concluído. Encontradas {len(df_final)} mesclagens nativas reais.")
+        st.success(f"Rastreamento concluído. Encontradas {len(df_final)} mesclagens nativas exatas.")
         
         st.dataframe(
             df_final,
