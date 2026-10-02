@@ -3,13 +3,12 @@ import pandas as pd
 import requests
 import time
 from datetime import datetime, timedelta
-import re
 
 # Configurações iniciais
 st.set_page_config(page_title="Rastreio de Mescladas", page_icon="🔗", layout="wide")
 
 st.title("🔗 Rastreio de Conversas Mescladas")
-st.write("Descubra o destino das conversas duplicadas e qual motivo foi preenchido no final.")
+st.write("Descubra o destino das conversas duplicadas (incluindo clientes com múltiplos cadastros).")
 
 WORKSPACE_ID = "xwvpdtlu"
 
@@ -81,21 +80,61 @@ def ler_conversa_individual(c_id):
         pass
     return None
 
-def extrair_id_principal(conversa_json):
-    # O Intercom guarda a ligação de mesclagem nas partes da conversa
-    partes = conversa_json.get('conversation_parts', {}).get('conversation_parts', [])
-    for p in partes:
-        # Verifica se existe um objeto indicando a conversa primária
-        if p.get('part_type') == 'merged_secondary_conversation' or 'merge' in str(p).lower():
-            # Tenta encontrar URLs ou IDs no corpo ou nos metadados
-            texto = str(p.get('body', '')) + str(p)
-            numeros = re.findall(r'\b\d{10,15}\b', texto)
+def buscar_destino_por_email(id_origem, contact_id):
+    email = None
+    
+    # 1. Descobre o e-mail atrelado a este contato
+    if contact_id:
+        try:
+            resp_ct = requests.get(f"https://api.intercom.io/contacts/{contact_id}", headers=HEADERS)
+            if resp_ct.status_code == 200:
+                email = resp_ct.json().get('email')
+        except:
+            pass
             
-            # Filtra o próprio ID para não entrar em loop
-            id_atual = str(conversa_json.get('id'))
-            for num in numeros:
-                if num != id_atual:
-                    return num
+    # Se não tiver e-mail, seguimos com o ID original. Se tiver, buscamos os IDs duplicados.
+    contact_ids = []
+    if not email:
+        if contact_id:
+            contact_ids.append(contact_id)
+    else:
+        url_contacts = "https://api.intercom.io/contacts/search"
+        payload_contacts = {"query": {"field": "email", "operator": "=", "value": email}}
+        try:
+            resp_c = requests.post(url_contacts, headers=HEADERS, json=payload_contacts)
+            if resp_c.status_code == 200:
+                contact_ids = [str(c['id']) for c in resp_c.json().get('data', [])]
+        except:
+            pass
+            
+    if not contact_ids:
+        return "Sem cliente ou email"
+        
+    # 2. Busca as conversas de TODOS os perfis atrelados a esse e-mail
+    url_conv = "https://api.intercom.io/conversations/search"
+    todas_outras = []
+    
+    for cid in contact_ids:
+        payload_conv = {
+            "query": {"field": "contact_id", "operator": "=", "value": cid},
+            "sort": {"field": "updated_at", "order": "descending"},
+            "pagination": {"per_page": 5}
+        }
+        try:
+            resp = requests.post(url_conv, headers=HEADERS, json=payload_conv)
+            if resp.status_code == 200:
+                conversas = resp.json().get('conversations', [])
+                for conv in conversas:
+                    if str(conv['id']) != str(id_origem):
+                        todas_outras.append(conv)
+        except:
+            continue
+            
+    # 3. Ordena e retorna a mais recente
+    if todas_outras:
+        todas_outras.sort(key=lambda x: x.get('updated_at', 0), reverse=True)
+        return str(todas_outras[0].get('id'))
+        
     return "Não encontrado"
 
 # Interface e Filtros
@@ -108,7 +147,7 @@ with st.sidebar:
 if btn_run:
     start, end = periodo
     
-    with st.spinner("Buscando conversas e analisando cruzamentos... Isso pode levar alguns segundos."):
+    with st.spinner("Investigando contatos por e-mail e cruzando conversas..."):
         mapa_atributos = get_attribute_definitions()
         todas_conversas = fetch_conversations(start, end)
         
@@ -125,25 +164,31 @@ if btn_run:
         barra_progresso = st.progress(0)
         
         for index, c in enumerate(mescladas):
-            id_origem = c['id']
+            id_origem = str(c['id'])
             data_origem = (datetime.fromtimestamp(c['created_at']) - timedelta(hours=3)).strftime("%d/%m/%Y %H:%M")
             link_origem = f"https://app.intercom.com/a/inbox/{WORKSPACE_ID}/inbox/conversation/{id_origem}"
             
-            # Busca os detalhes para achar o pai
-            detalhe_origem = ler_conversa_individual(id_origem)
-            id_destino = extrair_id_principal(detalhe_origem) if detalhe_origem else "Erro na leitura"
+            # Pega o ID do contato que abriu a conversa mesclada
+            contact_id = None
+            if c.get('source') and c['source'].get('author'):
+                contact_id = str(c['source']['author'].get('id'))
+            
+            if not contact_id and c.get('contacts') and c['contacts'].get('contacts'):
+                contact_id = str(c['contacts']['contacts'][0].get('id'))
+                
+            # Chama a nossa nova função turbinada por e-mail
+            id_destino = buscar_destino_por_email(id_origem, contact_id)
             
             motivo_destino = "Não classificado"
             link_destino = "-"
             
-            # Se achou o pai, faz mais uma requisição para pegar o motivo dele
+            # Lê o motivo de contato da conversa final
             if id_destino.isdigit():
                 link_destino = f"https://app.intercom.com/a/inbox/{WORKSPACE_ID}/inbox/conversation/{id_destino}"
                 detalhe_destino = ler_conversa_individual(id_destino)
                 
                 if detalhe_destino:
                     atributos_destino = detalhe_destino.get('custom_attributes', {})
-                    # Procura a chave real do motivo de contato (pode ser o ID do atributo ou o nome)
                     for key, value in atributos_destino.items():
                         nome_bonito = mapa_atributos.get(key, key)
                         if "Motivo de Contato" in nome_bonito and value:
@@ -160,9 +205,8 @@ if btn_run:
             })
             
             barra_progresso.progress((index + 1) / len(mescladas))
-            time.sleep(0.1) # Pausa leve para não bloquear a API
+            time.sleep(0.1)
             
-        # Exibição final
         df_final = pd.DataFrame(linhas)
         st.success("Rastreamento concluído.")
         
