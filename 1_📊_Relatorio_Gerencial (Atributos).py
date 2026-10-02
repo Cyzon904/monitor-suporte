@@ -121,7 +121,7 @@ def get_all_admins():
         return {}
 
 @st.cache_data(ttl=300, show_spinner=False)
-def fetch_conversations(start_date, end_date, team_ids=None):
+def fetch_conversations(start_date, end_date, team_ids=None, regra_mesclada="Incluir Todas"):
     url = "https://api.intercom.io/conversations/search"
     ts_start = int(datetime.combine(start_date, datetime.min.time()).timestamp())
     ts_end = int(datetime.combine(end_date, datetime.max.time()).timestamp())
@@ -133,8 +133,14 @@ def fetch_conversations(start_date, end_date, team_ids=None):
     if team_ids:
         query_rules.append({"field": "team_assignee_id", "operator": "IN", "value": team_ids})
 
+    # NOVO: Aplica o filtro de conversas mescladas na query da API
+    if regra_mesclada == "Apenas Mescladas":
+        query_rules.append({"field": "merged", "operator": "=", "value": True})
+    elif regra_mesclada == "Excluir Mescladas":
+        query_rules.append({"field": "merged", "operator": "=", "value": False})
+
     payload = {"query": {"operator": "AND", "value": query_rules}, "pagination": {"per_page": 150}}
-    
+        
     conversas = []
     has_more = True
     status_text = st.empty()
@@ -230,6 +236,7 @@ def process_data(conversas, mapping, admin_map):
             "CSAT Comentario": (c.get('conversation_rating') or {}).get('remark'),
             "Ticket Backoffice": tem_ticket,
             "ID do Ticket": id_do_ticket
+            "Mesclada": "Sim" if c.get('merged') else "Não"
         }
         
         attrs = c.get('custom_attributes', {})
@@ -282,6 +289,13 @@ with st.sidebar:
     data_hoje = datetime.now()
     periodo = st.date_input("Período", (data_hoje - timedelta(days=7), data_hoje), format="DD/MM/YYYY")
     team_input = st.text_input("IDs dos Times:", value="2975006")
+    
+    # NOVO: Filtro visual de conversas mescladas
+    filtro_mescladas = st.selectbox(
+        "Conversas Mescladas:", 
+        ["Incluir Todas", "Apenas Mescladas", "Excluir Mescladas"]
+    )
+    
     btn_run = st.button("🚀 Gerar Dados", type="primary")
     logout_button()
 
@@ -292,7 +306,9 @@ if btn_run:
     with st.spinner("Analisando dados..."):
         mapa = get_attribute_definitions()
         admins_map = get_all_admins()
-        raw = fetch_conversations(start, end, ids_times)
+        
+        # NOVO: Passando o filtro selecionado para a função
+        raw = fetch_conversations(start, end, ids_times, filtro_mescladas)
         
         if raw:
             df = process_data(raw, mapa, admins_map)
