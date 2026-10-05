@@ -1,209 +1,286 @@
-import streamlit as st 
-import pandas as pd
+import os
 import requests
-import time
-from datetime import datetime, timedelta
+import pandas as pd
+import streamlit as st
+from datetime import datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
-# Configurações iniciais
-st.set_page_config(page_title="Rastreio de Mescladas", page_icon="🔗", layout="wide")
-
-st.title("🔗 Rastreio de Conversas Mescladas")
-st.write("Descobre o destino das conversas duplicadas através do cruzamento exato de eventos do sistema.")
-
-WORKSPACE_ID = "xwvpdtlu"
-
-# Constantes de Eventos de Mesclagem baseadas no exemplo 3
+API_URL = "https://api.intercom.io"
+API_VERSION = "2.16"
+PAGE_SIZE = 150
+HTTP_SESSION = requests.Session()
 MERGE_PRIMARY_PART = "merged_primary_conversation"
 MERGE_SECONDARY_PART = "merged_secondary_conversation"
-MERGE_EVENT_TOLERANCE_SECONDS = 2
+MERGE_EVENT_TOLERANCE_SECONDS = 5
+PRIMARY_UPDATE_GRACE_SECONDS = 7 * 24 * 60 * 60
+REPORT_TIMEZONE = ZoneInfo("America/Sao_Paulo")
 
-# Autenticação
-try:
-    INTERCOM_ACCESS_TOKEN = st.secrets["INTERCOM_TOKEN"]
-except:
-    INTERCOM_ACCESS_TOKEN = st.sidebar.text_input("Intercom Token", type="password")
+def api_get(token, path, params=None):
+    response = HTTP_SESSION.get(
+        f"{API_URL}{path}",
+        params=params,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "Intercom-Version": API_VERSION,
+        },
+        timeout=30,
+    )
+    response.raise_for_status()
+    return response.json()
 
-if not INTERCOM_ACCESS_TOKEN:
-    st.warning("⚠️ Configura o Token do Intercom para continuar.")
-    st.stop()
+def api_search(token, payload):
+    response = HTTP_SESSION.post(
+        f"{API_URL}/conversations/search",
+        json=payload,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "Intercom-Version": API_VERSION,
+        },
+        timeout=30,
+    )
+    response.raise_for_status()
+    return response.json()
 
-HEADERS = {"Authorization": f"Bearer {INTERCOM_ACCESS_TOKEN}", "Accept": "application/json"}
+def list_conversations(token, since_timestamp=None, until_timestamp=None):
+    conversations = []
+    starting_after = None
+    while True:
+        filters = []
+        if since_timestamp is not None:
+            filters.append({
+                "field": "updated_at",
+                "operator": ">",
+                "value": str(since_timestamp),
+            })
+        if until_timestamp is not None:
+            filters.append({
+                "field": "updated_at",
+                "operator": "<",
+                "value": str(until_timestamp),
+            })
 
-# Funções da API
-@st.cache_data(ttl=3600)
-def get_attribute_definitions():
-    url = "https://api.intercom.io/data_attributes"
-    params = {"model": "conversation"}
-    try:
-        r = requests.get(url, headers=HEADERS, params=params)
-        return {item['name']: item['label'] for item in r.json().get('data', [])}
-    except:
-        return {}
+        if filters:
+            payload = {
+                "query": filters[0] if len(filters) == 1 else {
+                    "operator": "AND",
+                    "value": filters,
+                },
+                "pagination": {"per_page": PAGE_SIZE},
+            }
+            if starting_after:
+                payload["pagination"]["starting_after"] = starting_after
+            result = api_search(token, payload)
+        else:
+            params = {"per_page": PAGE_SIZE}
+            if starting_after:
+                params["starting_after"] = starting_after
+            result = api_get(token, "/conversations", params=params)
 
-def fetch_conversations(start_date, end_date):
-    url = "https://api.intercom.io/conversations/search"
-    ts_start = int(datetime.combine(start_date, datetime.min.time()).timestamp())
-    ts_end = int(datetime.combine(end_date, datetime.max.time()).timestamp())
-    
-    query_rules = [
-        {"field": "updated_at", "operator": ">", "value": ts_start},
-        {"field": "updated_at", "operator": "<", "value": ts_end}
-    ]
-    
-    payload = {"query": {"operator": "AND", "value": query_rules}, "pagination": {"per_page": 150}}
-    
-    conversas = []
-    has_more = True
-    status_text = st.empty()
-    
-    while has_more:
-        try:
-            resp = requests.post(url, headers=HEADERS, json=payload)
-            data = resp.json()
-            batch = data.get('conversations', [])
-            conversas.extend(batch)
-            status_text.caption(f"📥 A carregar dados... {len(conversas)} conversas processadas.")
-            
-            if data.get('pages', {}).get('next'):
-                payload['pagination']['starting_after'] = data['pages']['next']['starting_after']
-                time.sleep(0.1)
-            else:
-                has_more = False
-        except:
-            break
-            
-    status_text.empty()
-    return conversas
+        conversations.extend(result.get("conversations", []))
+        next_page = (result.get("pages") or {}).get("next") or {}
+        starting_after = next_page.get("starting_after")
+        if not starting_after:
+            return conversations
 
-def ler_conversa_individual(c_id):
-    url = f"https://api.intercom.io/conversations/{c_id}"
-    try:
-        resp = requests.get(url, headers=HEADERS)
-        if resp.status_code == 200:
-            return resp.json()
-    except:
-        pass
-    return None
+def conversation_parts(conversation):
+    return (
+        (conversation.get("conversation_parts") or {}).get("conversation_parts") or []
+    )
 
-def obter_tempos_evento(conversa_json, tipo_evento):
-    """Extrai todos os timestamps do evento procurado dentro da conversa."""
-    partes = conversa_json.get("conversation_parts", {}).get("conversation_parts", [])
+def merge_event_times(conversation, event_type):
     return [
         part["created_at"]
-        for part in partes
-        if part.get("part_type") == tipo_evento and part.get("created_at") is not None
+        for part in conversation_parts(conversation)
+        if part.get("part_type") == event_type and part.get("created_at") is not None
     ]
 
-# Interface e Filtros
-with st.sidebar:
-    st.header("Filtros")
-    data_hoje = datetime.now()
-    periodo = st.date_input("Período (Data de Atualização)", (data_hoje - timedelta(days=2), data_hoje), format="DD/MM/YYYY")
-    btn_run = st.button("🚀 Buscar Mescladas", type="primary")
+def timestamp_to_iso(timestamp):
+    if not timestamp:
+        return ""
+    return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat()
 
-if btn_run:
-    start, end = periodo
-    
-    with st.spinner("A cruzar os dados matematicamente por eventos do sistema..."):
-        mapa_atributos = get_attribute_definitions()
-        todas_conversas = fetch_conversations(start, end)
-        
-        # Filtra as candidatas a secundárias para otimizar os pedidos da API
-        # Procuramos as fechadas que tenham o atributo Merged = True ou tags de duplicada
-        candidatas_secundarias = []
-        for c in todas_conversas:
-            if c.get('state') == 'closed':
-                is_merged = c.get('custom_attributes', {}).get('Merged') == True
-                if not is_merged:
-                    tags = c.get('tags', {}).get('tags', [])
-                    for t in tags:
-                        if 'duplicada' in str(t.get('name', '')).lower() or 'merged' in str(t.get('name', '')).lower():
-                            is_merged = True
-                if is_merged:
-                    candidatas_secundarias.append(c)
+def conversation_contact_ids(conversation):
+    contacts = (conversation.get("contacts") or {}).get("contacts") or []
+    return {
+        str(contact["id"])
+        for contact in contacts
+        if contact.get("id") is not None
+    }
 
-        linhas = []
-        barra_progresso = st.progress(0)
-        
-        for index, c_sec in enumerate(candidatas_secundarias):
-            id_secundario = str(c_sec['id'])
-            
-            # Carrega o histórico da conversa secundária para achar o tempo exato do evento
-            detalhe_secundaria = ler_conversa_individual(id_secundario)
-            if not detalhe_secundaria:
-                continue
-                
-            tempos_secundarios = obter_tempos_evento(detalhe_secundaria, MERGE_SECONDARY_PART)
-            if not tempos_secundarios:
-                continue
-                
-            # Assume o evento de mesclagem mais recente, caso haja mais de um
-            tempo_mesclagem_alvo = tempos_secundarios[-1]
-            
-            # Procura candidatos primários na nossa lista rápida.
-            # O Intercom atualiza a conversa no momento da mesclagem, então o updated_at deve estar próximo.
-            candidatos_primarios = [
-                c for c in todas_conversas 
-                if str(c['id']) != id_secundario 
-                and abs(c['updated_at'] - tempo_mesclagem_alvo) <= 300 # Tolerância de 5 minutos no cabeçalho
-            ]
-            
-            id_destino = None
-            motivo_destino = "Não classificado"
-            
-            # Verifica o par matemático
-            for c_prim in candidatos_primarios:
-                detalhe_primario = ler_conversa_individual(str(c_prim['id']))
-                if not detalhe_primario:
-                    continue
-                    
-                tempos_primarios = obter_tempos_evento(detalhe_primario, MERGE_PRIMARY_PART)
-                
-                # Regra principal: A diferença exata entre os eventos ocultos é menor que 2 segundos?
-                se_corresponde = any(abs(t_prim - tempo_mesclagem_alvo) <= MERGE_EVENT_TOLERANCE_SECONDS for t_prim in tempos_primarios)
-                
-                if se_corresponde:
-                    id_destino = str(c_prim['id'])
-                    
-                    # Extrai o motivo da conversa principal confirmada
-                    atributos_destino = detalhe_primario.get('custom_attributes', {})
-                    for key, value in atributos_destino.items():
-                        nome_bonito = mapa_atributos.get(key, key)
-                        if "Motivo de Contato" in nome_bonito and value:
-                            motivo_destino = value
-                            break
-                    break # Par encontrado, para a procura deste ID
+def is_merged_secondary(summary):
+    value = (summary.get("custom_attributes") or {}).get("Merged")
+    return value is True or (isinstance(value, str) and value.casefold() == "true")
 
-            if id_destino:
-                data_origem = (datetime.fromtimestamp(detalhe_secundaria['created_at']) - timedelta(hours=3)).strftime("%d/%m/%Y %H:%M")
-                
-                linhas.append({
-                    "Data Original": data_origem,
-                    "ID Origem (Mesclada)": id_secundario,
-                    "ID Destino (Principal)": id_destino,
-                    "Motivo Final (Destino)": motivo_destino,
-                    "Abrir Origem": f"https://app.intercom.com/a/inbox/{WORKSPACE_ID}/inbox/conversation/{id_secundario}",
-                    "Abrir Destino": f"https://app.intercom.com/a/inbox/{WORKSPACE_ID}/inbox/conversation/{id_destino}"
-                })
-                
-            barra_progresso.progress((index + 1) / len(candidatas_secundarias))
-            time.sleep(0.1)
-            
-        if not linhas:
-            st.success("Nenhuma conversa mesclada encontrada neste período.")
-            st.stop()
-            
-        df_final = pd.DataFrame(linhas)
-        df_final = df_final.sort_values(by="Data Original", ascending=False)
-        
-        st.success(f"Rastreamento concluído. Encontradas {len(df_final)} mesclagens nativas exatas.")
-        
-        st.dataframe(
-            df_final,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Abrir Origem": st.column_config.LinkColumn("🔗 Origem"),
-                "Abrir Destino": st.column_config.LinkColumn("🔗 Destino")
-            }
+def build_report(token, since_timestamp=None, until_timestamp=None):
+    search_since_timestamp = (
+        max(0, since_timestamp - PRIMARY_UPDATE_GRACE_SECONDS)
+        if since_timestamp is not None
+        else None
+    )
+    search_until_timestamp = (
+        until_timestamp + PRIMARY_UPDATE_GRACE_SECONDS
+        if until_timestamp is not None
+        else None
+    )
+    summaries = list_conversations(
+        token, search_since_timestamp, search_until_timestamp
+    )
+    summaries_by_id = {
+        str(summary["id"]): summary
+        for summary in summaries
+        if summary.get("id") is not None
+    }
+    details = {}
+    details_by_contact = {}
+
+    def get_details(summary):
+        conversation_id = str(summary.get("id", ""))
+        if not conversation_id:
+            return None
+        if conversation_id not in details:
+            detail = api_get(
+                token, f"/conversations/{conversation_id}"
+            )
+            details[conversation_id] = detail
+            for contact_id in conversation_contact_ids(detail):
+                details_by_contact.setdefault(contact_id, set()).add(conversation_id)
+        return details[conversation_id]
+
+    def event_is_in_range(event_time):
+        return (
+            (since_timestamp is None or event_time >= since_timestamp)
+            and (until_timestamp is None or event_time <= until_timestamp)
         )
+
+    rows = {}
+    secondary_summaries = [
+        summary
+        for summary in summaries
+        if summary.get("state") == "closed" and is_merged_secondary(summary)
+    ]
+
+    for secondary_summary in secondary_summaries:
+        secondary = get_details(secondary_summary)
+        if not secondary:
+            continue
+        secondary_id = str(secondary.get("id", ""))
+        contact_ids = conversation_contact_ids(secondary)
+
+        for secondary_event_time in merge_event_times(secondary, MERGE_SECONDARY_PART):
+            if not event_is_in_range(secondary_event_time):
+                continue
+
+            candidate_ids = {
+                str(candidate_id)
+                for contact_id in contact_ids
+                for candidate_id in details_by_contact.get(contact_id, set())
+                if candidate_id != secondary_id
+            }
+            candidate_ids.update(
+                candidate_id
+                for contact_id in contact_ids
+                for candidate_id, candidate in summaries_by_id.items()
+                if candidate_id != secondary_id
+                and candidate_id not in details
+                and contact_id in conversation_contact_ids(candidate)
+                and candidate.get("updated_at", 0)
+                >= secondary_event_time - MERGE_EVENT_TOLERANCE_SECONDS
+                and candidate.get("updated_at", 0)
+                <= secondary_event_time + PRIMARY_UPDATE_GRACE_SECONDS
+            )
+            candidate_primary_ids = set()
+            for primary_id in candidate_ids:
+                primary_summary = summaries_by_id.get(primary_id)
+                if primary_summary is None:
+                    continue
+                primary = get_details(primary_summary)
+                if not primary:
+                    continue
+                if any(
+                    event_is_in_range(primary_event_time)
+                    and abs(primary_event_time - secondary_event_time)
+                    <= MERGE_EVENT_TOLERANCE_SECONDS
+                    for primary_event_time in merge_event_times(
+                        primary, MERGE_PRIMARY_PART
+                    )
+                ):
+                    candidate_primary_ids.add(primary_id)
+
+            if len(candidate_primary_ids) != 1:
+                continue
+
+            primary_id = candidate_primary_ids.pop()
+            primary = details[primary_id]
+            secondary_reason = (secondary.get("custom_attributes") or {}).get(
+                "Motivo de Contato"
+            )
+            primary_reason = (primary.get("custom_attributes") or {}).get(
+                "Motivo de Contato"
+            )
+            rows[(secondary_id, primary_id)] = {
+                "id_secundaria_mesclada": secondary_id,
+                "id_principal": primary_id,
+                "motivo_contato_secundaria": (
+                    str(secondary_reason)
+                    if secondary_reason not in (None, "")
+                    else ""
+                ),
+                "motivo_contato_principal": (
+                    str(primary_reason) if primary_reason not in (None, "") else ""
+                ),
+                "status_secundaria": secondary.get("state", ""),
+                "status_principal": primary.get("state", ""),
+                "criada_secundaria_em_utc": timestamp_to_iso(secondary.get("created_at")),
+                "mesclada_em_utc": timestamp_to_iso(secondary_event_time),
+            }
+
+    return list(rows.values())
+
+def main():
+    st.set_page_config(page_title="Relatório de Mesclagens", layout="wide")
+    st.title("Relatório de Mesclagens do Intercom")
+
+    # Tenta buscar o token dos secrets do Streamlit primeiro, depois nas variáveis de ambiente
+    token = st.secrets.get("INTERCOM_TOKEN") or os.environ.get("INTERCOM_TOKEN")
+
+    if not token:
+        st.error("A chave INTERCOM_TOKEN não foi encontrada. Configure-a nos secrets do Streamlit ou no arquivo .env.")
+        st.stop()
+
+    with st.form("filtro_relatorio"):
+        st.write("Selecione os parâmetros para buscar as conversas secundárias mescladas e suas principais correspondentes[cite: 1].")
+        since_date = st.date_input("Considerar conversas atualizadas a partir de:")
+        gerar = st.form_submit_button("Gerar Relatório")
+
+    if gerar:
+        with st.spinner("Buscando dados na API do Intercom... Isso pode levar alguns minutos[cite: 1]."):
+            since_datetime = datetime.combine(since_date, time.min).replace(tzinfo=timezone.utc)
+            since_timestamp = int(since_datetime.timestamp())
+
+            try:
+                rows = build_report(token, since_timestamp=since_timestamp)
+
+                if rows:
+                    st.success(f"Relatório gerado com sucesso! Encontramos {len(rows)} mesclagens no período selecionado.")
+                    
+                    df = pd.DataFrame(rows)
+                    st.dataframe(df, use_container_width=True)
+
+                    csv_data = df.to_csv(index=False).encode("utf-8-sig")
+                    st.download_button(
+                        label="Baixar conversas_mescladas.csv",
+                        data=csv_data,
+                        file_name="conversas_mescladas.csv",
+                        mime="text/csv",
+                    )
+                else:
+                    st.warning("Nenhuma mesclagem foi encontrada para a data selecionada.")
+
+            except requests.RequestException as error:
+                st.error(f"Erro ao consultar a API do Intercom: {error}[cite: 1]")
+
+if __name__ == "__main__":
+    main()
