@@ -1,9 +1,15 @@
+import argparse
+import csv
 import os
-import requests
-import pandas as pd
-import streamlit as st
+import sys
 from datetime import datetime, time, timedelta, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo
+
+import requests
+from dotenv import load_dotenv
+
+load_dotenv()
 
 API_URL = "https://api.intercom.io"
 API_VERSION = "2.16"
@@ -14,6 +20,7 @@ MERGE_SECONDARY_PART = "merged_secondary_conversation"
 MERGE_EVENT_TOLERANCE_SECONDS = 5
 PRIMARY_UPDATE_GRACE_SECONDS = 7 * 24 * 60 * 60
 REPORT_TIMEZONE = ZoneInfo("America/Sao_Paulo")
+
 
 def api_get(token, path, params=None):
     response = HTTP_SESSION.get(
@@ -29,6 +36,7 @@ def api_get(token, path, params=None):
     response.raise_for_status()
     return response.json()
 
+
 def api_search(token, payload):
     response = HTTP_SESSION.post(
         f"{API_URL}/conversations/search",
@@ -43,6 +51,7 @@ def api_search(token, payload):
     )
     response.raise_for_status()
     return response.json()
+
 
 def list_conversations(token, since_timestamp=None, until_timestamp=None):
     conversations = []
@@ -85,10 +94,12 @@ def list_conversations(token, since_timestamp=None, until_timestamp=None):
         if not starting_after:
             return conversations
 
+
 def conversation_parts(conversation):
     return (
         (conversation.get("conversation_parts") or {}).get("conversation_parts") or []
     )
+
 
 def merge_event_times(conversation, event_type):
     return [
@@ -97,10 +108,12 @@ def merge_event_times(conversation, event_type):
         if part.get("part_type") == event_type and part.get("created_at") is not None
     ]
 
+
 def timestamp_to_iso(timestamp):
     if not timestamp:
         return ""
     return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat()
+
 
 def conversation_contact_ids(conversation):
     contacts = (conversation.get("contacts") or {}).get("contacts") or []
@@ -110,9 +123,11 @@ def conversation_contact_ids(conversation):
         if contact.get("id") is not None
     }
 
+
 def is_merged_secondary(summary):
     value = (summary.get("custom_attributes") or {}).get("Merged")
     return value is True or (isinstance(value, str) and value.casefold() == "true")
+
 
 def build_report(token, since_timestamp=None, until_timestamp=None):
     search_since_timestamp = (
@@ -239,48 +254,67 @@ def build_report(token, since_timestamp=None, until_timestamp=None):
 
     return list(rows.values())
 
+
+def parse_since(value):
+    try:
+        parsed = datetime.strptime(value, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("Use a data no formato AAAA-MM-DD.") from error
+    return int(parsed.timestamp())
+
+
+def day_bounds(value):
+    selected_day = datetime.strptime(value, "%Y-%m-%d").date()
+    start = datetime.combine(selected_day, time.min, REPORT_TIMEZONE)
+    next_day = datetime.combine(selected_day + timedelta(days=1), time.min, REPORT_TIMEZONE)
+    return int(start.timestamp()), int(next_day.timestamp()) - 1
+
+
 def main():
-    st.set_page_config(page_title="Relatório de Mesclagens", layout="wide")
-    st.title("Relatório de Mesclagens do Intercom")
+    parser = argparse.ArgumentParser(
+        description="Gera CSV com conversas secundárias mescladas e suas conversas principais."
+    )
+    parser.add_argument(
+        "--since",
+        type=parse_since,
+        help="Considera conversas atualizadas a partir desta data (AAAA-MM-DD).",
+    )
+    parser.add_argument(
+        "--output",
+        default="conversas_mescladas.csv",
+        help="Caminho do CSV de saída (padrão: conversas_mescladas.csv).",
+    )
+    args = parser.parse_args()
 
-    # Tenta buscar o token dos secrets do Streamlit primeiro, depois nas variáveis de ambiente
-    token = st.secrets.get("INTERCOM_TOKEN") or os.environ.get("INTERCOM_TOKEN")
-
+    token = os.environ.get("INTERCOM_TOKEN")
     if not token:
-        st.error("A chave INTERCOM_TOKEN não foi encontrada. Configure-a nos secrets do Streamlit ou no arquivo .env.")
-        st.stop()
+        print("Defina a variável de ambiente INTERCOM_TOKEN.", file=sys.stderr)
+        return 1
 
-    with st.form("filtro_relatorio"):
-        st.write("Selecione os parâmetros para buscar as conversas secundárias mescladas e suas principais correspondentes[cite: 1].")
-        since_date = st.date_input("Considerar conversas atualizadas a partir de:")
-        gerar = st.form_submit_button("Gerar Relatório")
+    try:
+        rows = build_report(token, args.since)
+        fields = [
+            "id_secundaria_mesclada",
+            "id_principal",
+            "motivo_contato_secundaria",
+            "motivo_contato_principal",
+            "status_secundaria",
+            "status_principal",
+            "criada_secundaria_em_utc",
+            "mesclada_em_utc",
+        ]
+        with Path(args.output).open("w", newline="", encoding="utf-8-sig") as output_file:
+            writer = csv.DictWriter(output_file, fieldnames=fields)
+            writer.writeheader()
+            writer.writerows(rows)
+    except requests.RequestException as error:
+        print(f"Erro ao consultar a API do Intercom: {error}", file=sys.stderr)
+        return 1
 
-    if gerar:
-        with st.spinner("Buscando dados na API do Intercom... Isso pode levar alguns minutos[cite: 1]."):
-            since_datetime = datetime.combine(since_date, time.min).replace(tzinfo=timezone.utc)
-            since_timestamp = int(since_datetime.timestamp())
+    print(f"Relatório gerado: {args.output} ({len(rows)} mesclagem(ns)).")
+    return 0
 
-            try:
-                rows = build_report(token, since_timestamp=since_timestamp)
-
-                if rows:
-                    st.success(f"Relatório gerado com sucesso! Encontramos {len(rows)} mesclagens no período selecionado.")
-                    
-                    df = pd.DataFrame(rows)
-                    st.dataframe(df, use_container_width=True)
-
-                    csv_data = df.to_csv(index=False).encode("utf-8-sig")
-                    st.download_button(
-                        label="Baixar conversas_mescladas.csv",
-                        data=csv_data,
-                        file_name="conversas_mescladas.csv",
-                        mime="text/csv",
-                    )
-                else:
-                    st.warning("Nenhuma mesclagem foi encontrada para a data selecionada.")
-
-            except requests.RequestException as error:
-                st.error(f"Erro ao consultar a API do Intercom: {error}[cite: 1]")
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
+
