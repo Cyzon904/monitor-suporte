@@ -1,3 +1,4 @@
+import hashlib
 import os
 from io import BytesIO
 from datetime import date, datetime, time, timedelta, timezone
@@ -303,6 +304,11 @@ with st.sidebar:
         max_value=default_end,
     )
     update_report = st.button("Atualizar relatório", type="primary")
+    force_refresh = st.button("Consultar novamente na fonte")
+    st.caption(
+        "O mesmo período é reutilizado durante esta sessão. Use a consulta "
+        "forçada para buscar dados novos."
+    )
 
 if len(selected_dates) != 2:
     st.info("Selecione as datas inicial e final para consultar o relatório.")
@@ -313,8 +319,26 @@ if start_date > end_date:
     st.error("A data inicial não pode ser posterior à data final.")
     st.stop()
 
+report_source = "API do Intercom" if token else str(CSV_PATH.name)
+credential_fingerprint = hashlib.sha256(token.encode("utf-8")).hexdigest()
+csv_fingerprint = (
+    (CSV_PATH.stat().st_mtime_ns, CSV_PATH.stat().st_size)
+    if not token and CSV_PATH.exists()
+    else None
+)
+cache_key = (
+    report_source,
+    start_date.isoformat(),
+    end_date.isoformat(),
+    credential_fingerprint,
+    csv_fingerprint,
+)
+report_cache = st.session_state.setdefault("report_cache", {})
+
 progress_value = st.session_state.get("report_progress", 0.0)
-with st.expander("Andamento da consulta", expanded=update_report):
+with st.expander(
+    "Andamento da consulta", expanded=update_report or force_refresh
+):
     progress_bar = st.progress(
         progress_value,
         text=st.session_state.get(
@@ -367,7 +391,7 @@ def on_report_progress(event):
     progress_status.info(status_message)
 
 
-if update_report:
+if update_report or force_refresh:
     if not token and not CSV_PATH.exists():
         st.error(
             "Credenciais não configuradas. Adicione INTERCOM_TOKEN, INTERCOM_APP_ID "
@@ -375,70 +399,97 @@ if update_report:
         )
         st.stop()
 
-    st.session_state["report_progress"] = 0.0
-    st.session_state["report_progress_text"] = "Iniciando a consulta..."
-    start_message = (
-        f"{datetime.now(REPORT_TIMEZONE):%H:%M:%S} — Iniciando a consulta."
-    )
-    st.session_state["report_progress_status"] = start_message
-    progress_bar.progress(0.0, text="Iniciando a consulta...")
-    progress_status.info(start_message)
-
-    try:
-        if token:
-            since_timestamp, until_timestamp = local_day_bounds(start_date, end_date)
-            with st.spinner("Consultando as mesclagens no Intercom..."):
-                st.session_state["report_rows"] = build_report(
-                    token,
-                    since_timestamp,
-                    until_timestamp,
-                    progress_callback=on_report_progress,
-                )
-            st.session_state["report_source"] = "API do Intercom"
-        else:
-            on_report_progress(
-                {
-                    "message": "Lendo as mesclagens do CSV local.",
-                    "progress": 0.2,
-                }
-            )
-            st.session_state["report_rows"] = filter_csv_rows(start_date, end_date)
-            st.session_state["report_source"] = str(CSV_PATH.name)
-            on_report_progress(
-                {
-                    "message": (
-                        f"Leitura concluída: {len(st.session_state['report_rows'])} "
-                        "mesclagens no CSV."
-                    ),
-                    "progress": 1.0,
-                }
-            )
-
+    cached_report = report_cache.get(cache_key)
+    if update_report and not force_refresh and cached_report is not None:
+        st.session_state["report_rows"] = cached_report["rows"]
+        st.session_state["report_source"] = cached_report["source"]
         st.session_state["report_period"] = (start_date, end_date)
         st.session_state["report_progress"] = 1.0
-        st.session_state["report_progress_text"] = (
-            f"100% — Consulta concluída: "
-            f"{len(st.session_state['report_rows'])} pares localizados."
-        )
-        complete_message = (
+        cache_message = (
             f"{datetime.now(REPORT_TIMEZONE):%H:%M:%S} — "
-            f"{len(st.session_state['report_rows'])} pares localizados."
+            f"Resultados reutilizados do cache: {len(cached_report['rows'])} "
+            "pares; nenhuma nova consulta foi feita."
         )
-        st.session_state["report_progress_status"] = complete_message
+        st.session_state["report_progress_text"] = (
+            f"100% — Cache: {len(cached_report['rows'])} pares reutilizados."
+        )
+        st.session_state["report_progress_status"] = cache_message
         progress_bar.progress(
             1.0,
             text=st.session_state["report_progress_text"],
         )
-        progress_status.success(complete_message)
-    except RequestException as error:
-        error_message = f"Falha ao consultar a API do Intercom: {error}"
-        st.session_state["report_progress_text"] = error_message
-        status_message = (
-            f"{datetime.now(REPORT_TIMEZONE):%H:%M:%S} — {error_message}"
+        progress_status.success(cache_message)
+    else:
+        st.session_state["report_progress"] = 0.0
+        st.session_state["report_progress_text"] = "Iniciando a consulta..."
+        start_message = (
+            f"{datetime.now(REPORT_TIMEZONE):%H:%M:%S} — Iniciando a consulta."
         )
-        st.session_state["report_progress_status"] = status_message
-        progress_status.error(status_message)
-        st.stop()
+        st.session_state["report_progress_status"] = start_message
+        progress_bar.progress(0.0, text="Iniciando a consulta...")
+        progress_status.info(start_message)
+
+        try:
+            if token:
+                since_timestamp, until_timestamp = local_day_bounds(start_date, end_date)
+                with st.spinner("Consultando as mesclagens no Intercom..."):
+                    report_rows = build_report(
+                        token,
+                        since_timestamp,
+                        until_timestamp,
+                        progress_callback=on_report_progress,
+                    )
+                source = "API do Intercom"
+            else:
+                on_report_progress(
+                    {
+                        "message": "Lendo as mesclagens do CSV local.",
+                        "progress": 0.2,
+                    }
+                )
+                report_rows = filter_csv_rows(start_date, end_date)
+                source = str(CSV_PATH.name)
+                on_report_progress(
+                    {
+                        "message": (
+                            f"Leitura concluída: {len(report_rows)} "
+                            "mesclagens no CSV."
+                        ),
+                        "progress": 1.0,
+                    }
+                )
+
+            st.session_state["report_rows"] = report_rows
+            st.session_state["report_source"] = source
+            st.session_state["report_period"] = (start_date, end_date)
+            report_cache[cache_key] = {
+                "rows": report_rows,
+                "source": source,
+            }
+            st.session_state["report_progress"] = 1.0
+            st.session_state["report_progress_text"] = (
+                f"100% — Consulta concluída: {len(report_rows)} pares localizados."
+            )
+            complete_message = (
+                f"{datetime.now(REPORT_TIMEZONE):%H:%M:%S} — "
+                f"{len(report_rows)} pares localizados e salvos no cache da sessão."
+            )
+            st.session_state["report_progress_status"] = complete_message
+            progress_bar.progress(
+                1.0,
+                text=st.session_state["report_progress_text"],
+            )
+            progress_status.success(complete_message)
+        except RequestException as error:
+            error_message = f"Falha ao consultar a API do Intercom: {error}"
+            st.session_state["report_progress_text"] = error_message
+            status_message = (
+                f"{datetime.now(REPORT_TIMEZONE):%H:%M:%S} — {error_message}"
+            )
+            st.session_state["report_progress_status"] = status_message
+            progress_status.error(status_message)
+            st.stop()
+
 
 if "report_rows" not in st.session_state:
     st.info("Selecione o período e clique em **Atualizar relatório** para pesquisar.")
@@ -620,5 +671,3 @@ st.download_button(
 st.caption(
     f"Fonte: {st.session_state.get('report_source', 'dados carregados')}."
 )
-
-
