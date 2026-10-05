@@ -11,3 +11,4 @@ google-generativeai
 openpyxl
 Flask
 altair
+python-dotenv
