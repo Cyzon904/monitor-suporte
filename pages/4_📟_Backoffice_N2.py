@@ -156,10 +156,22 @@ def process_tickets(tickets, admin_map):
         
         # Garanto que pego a data certa quando o ticket recebe um status de finalizado
         data_finalizacao = "-"
+        tempo_resolucao = "-" # Cria a variável vazia por padrão
         status_conclusao = ['Resolvido', 'Fechado', 'Concluído', 'Concluído N2']
         
         if status_atual in status_conclusao or t.get('open') is False:
             data_finalizacao = dt_update_raw.strftime("%d/%m/%Y %H:%M")
+            
+            # Calcula o tempo que levou para ser resolvido
+            diferenca = dt_update_raw - dt_criacao_raw
+            dias = diferenca.days
+            horas, resto = divmod(diferenca.seconds, 3600)
+            minutos, _ = divmod(resto, 60)
+            
+            if dias > 0:
+                tempo_resolucao = f"{dias}d {horas}h {minutos}m"
+            else:
+                tempo_resolucao = f"{horas}h {minutos}m"
 
         # Em vez de ter que abrir o chamado, leio os comentários de trás para frente
         # e pego a última atualização que o N2 fez no Jira
@@ -196,6 +208,7 @@ def process_tickets(tickets, admin_map):
             "Assunto": attrs.get('_default_title_', 'Sem Assunto'),
             "Data Criação": dt_criacao_raw.strftime("%d/%m/%Y %H:%M"),
             "Data Resolução": data_finalizacao,
+            "Tempo de Resolução": tempo_resolucao,
             "Status Intercom": status_atual,
             "Status Jira": status_jira, 
             "Analista N2": admin_map.get(str(admin_id), "Não atribuído"),
