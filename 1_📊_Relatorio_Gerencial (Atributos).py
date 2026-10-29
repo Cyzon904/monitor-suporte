@@ -314,9 +314,17 @@ def gerar_excel_multias(df, colunas_selecionadas):
                     resumo.to_excel(writer, index=False, sheet_name=nome_aba)
                 except: pass
 
-        cols_fixas = ["Data", "Estado", "Atendente", "Tempo Resposta", "Tempo Resolução", "CSAT Nota", "CSAT Comentario", "Link"]
+        # --- A LISTA ATUALIZADA COM AS NOVAS COLUNAS ---
+        cols_fixas = [
+            "ID", "Data", "Equipe", "Atendente", "E-mail", "Empresa", 
+            "Estado", "Tempo Resposta", "Tempo Resolução", 
+            "Ticket Backoffice", "ID do Ticket", "CSAT Nota", 
+            "CSAT Comentario", "Link"
+        ]
+        
         cols_finais = cols_fixas + [c for c in colunas_selecionadas if c not in cols_fixas]
         cols_existentes = [c for c in cols_finais if c in df.columns]
+        
         df[cols_existentes].to_excel(writer, index=False, sheet_name='Base Completa')
         writer.sheets['Base Completa'].set_column('A:A', 18) 
     return output.getvalue()
@@ -987,7 +995,7 @@ if 'df_final' in st.session_state:
             excel = gerar_excel_multias(df_view, cols_usuario)
             st.download_button("📥 Baixar Excel", data=excel, file_name="relatorio_filtrado.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary", use_container_width=True)
         
-        cols_display = ["ID", "Data", "Estado", "Equipe", "Atendente", "Link", "Tempo Resolução", "Ticket Backoffice", "ID do Ticket", "E-mail", "Empresa"] + cols_usuario
+        cols_display = ["ID", "Data", "Estado", "Equipe", "Atendente", "E-mail", "Empresa", "Link", "Tempo Resolução", "Ticket Backoffice", "ID do Ticket"] + cols_usuario
         cols_existentes = [c for c in cols_display if c in df_view.columns]
         
         # Exibe a tabela filtrada
