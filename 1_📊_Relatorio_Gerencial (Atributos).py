@@ -159,6 +159,17 @@ def fetch_conversations(start_date, end_date, team_ids=None, regra_mesclada="Inc
     return conversas
 
 @st.cache_data(ttl=86400, show_spinner=False)
+def get_company_name(company_id):
+    url = f"https://api.intercom.io/companies/{company_id}"
+    try:
+        r = requests.get(url, headers=HEADERS)
+        if r.status_code == 200:
+            return r.json().get('name', f"ID {company_id}")
+    except:
+        pass
+    return f"ID {company_id}"
+
+@st.cache_data(ttl=86400, show_spinner=False)
 def get_user_and_company(contact_id):
     if not contact_id: 
         return "-", "-"
@@ -173,8 +184,10 @@ def get_user_and_company(contact_id):
             empresa = "-"
             companies = d.get('companies', {}).get('data', [])
             if companies:
-                empresa = companies[0].get('name', 'ID ' + companies[0].get('id', ''))
-                
+                comp_id = companies[0].get('id')
+                if comp_id:
+                    empresa = get_company_name(comp_id)
+                    
             return email, empresa
     except: 
         pass
