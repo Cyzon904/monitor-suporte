@@ -158,6 +158,29 @@ def fetch_conversations(start_date, end_date, team_ids=None, regra_mesclada="Inc
     status_text.empty()
     return conversas
 
+@st.cache_data(ttl=86400, show_spinner=False)
+def get_user_and_company(contact_id):
+    if not contact_id: 
+        return "-", "-"
+        
+    url = f"https://api.intercom.io/contacts/{contact_id}"
+    try:
+        r = requests.get(url, headers=HEADERS)
+        if r.status_code == 200:
+            d = r.json()
+            email = d.get('email') or "-"
+            
+            empresa = "-"
+            companies = d.get('companies', {}).get('data', [])
+            if companies:
+                empresa = companies[0].get('name', 'ID ' + companies[0].get('id', ''))
+                
+            return email, empresa
+    except: 
+        pass
+        
+    return "-", "-"
+
 def process_data(conversas, mapping, admin_map):
     rows = []
     for c in conversas:
@@ -183,6 +206,15 @@ def process_data(conversas, mapping, admin_map):
             origem = "Ativa (Analista)"
         else:
             origem = "Receptiva (Cliente)"
+            
+        # Tenta achar o ID do cliente atrelado à conversa
+        if c.get('contacts', {}).get('contacts'):
+            contact_id = c['contacts']['contacts'][0].get('id')
+        elif autor_tipo in ['user', 'lead', 'contact']:
+            contact_id = author.get('id')
+            
+        if contact_id:
+            email_user, empresa_user = get_user_and_company(contact_id)
 
         # NOVA REGRA: Verifica se existe ticket de backoffice atrelado e pega o ID
         tem_ticket = "Não"
@@ -221,6 +253,8 @@ def process_data(conversas, mapping, admin_map):
             "Origem": origem,
             "Estado": estado_pt,
             "Atendente": assignee_name,
+            "E-mail": email_user,        # Nova linha
+            "Empresa": empresa_user,     # Nova linha
             "Link": link,
             "Tempo Resposta (seg)": time_reply_sec,
             "Tempo Resolução (seg)": time_close_sec,
@@ -940,8 +974,7 @@ if 'df_final' in st.session_state:
             excel = gerar_excel_multias(df_view, cols_usuario)
             st.download_button("📥 Baixar Excel", data=excel, file_name="relatorio_filtrado.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary", use_container_width=True)
         
-        # Adiciona as duas colunas novas na exibição da tabela
-        cols_display = ["ID", "Data", "Estado", "Equipe", "Atendente", "Link", "Tempo Resolução", "Ticket Backoffice", "ID do Ticket"] + cols_usuario
+        cols_display = ["ID", "Data", "Estado", "Equipe", "Atendente", "Link", "Tempo Resolução", "Ticket Backoffice", "ID do Ticket", "E-mail", "Empresa"] + cols_usuario
         cols_existentes = [c for c in cols_display if c in df_view.columns]
         
         # Exibe a tabela filtrada
