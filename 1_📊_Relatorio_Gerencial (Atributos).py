@@ -954,146 +954,146 @@ if 'df_final' in st.session_state:
                     st.plotly_chart(fig_tm, use_container_width=True)
             else: st.warning("Sem dados de tempo.")
 
-        if aba_selecionada == "📋 Dados":
-            with st.form("form_filtros_tabela"):
-                st.write("🔍 Filtros da Pesquisa")
+    if aba_selecionada == "📋 Dados":
+        with st.form("form_filtros_tabela"):
+            st.write("🔍 Filtros da Pesquisa")
                 
-                # Dividindo os filtros em duas linhas para não amontoar
-                c_eq, c1, c2, c3, c4 = st.columns(5)
-                c5, c6, c_emp, c_tam = st.columns(4)
+            # Dividindo os filtros em duas linhas para não amontoar
+            c_eq, c1, c2, c3, c4 = st.columns(5)
+            c5, c6, c_emp, c_tam = st.columns(4)
                 
-                with c_eq:
-                    equipes_unicas = sorted(df["Equipe"].astype(str).unique())
-                    sel_equipes = st.multiselect("🏢 Equipe (ID):", equipes_unicas)
+            with c_eq:
+                equipes_unicas = sorted(df["Equipe"].astype(str).unique())
+                sel_equipes = st.multiselect("🏢 Equipe (ID):", equipes_unicas)
                     
-                with c1:
-                    agentes_unicos = sorted(df["Atendente"].astype(str).unique())
-                    sel_agentes = st.multiselect("👤 Analista:", agentes_unicos)
+            with c1:
+                agentes_unicos = sorted(df["Atendente"].astype(str).unique())
+                sel_agentes = st.multiselect("👤 Analista:", agentes_unicos)
                     
-                with c2:
-                    if "Tipo de Atendimento" in df.columns:
-                        tipos_unicos = sorted(df["Tipo de Atendimento"].dropna().astype(str).unique())
-                        sel_tipos = st.multiselect("💬 Tipo:", tipos_unicos)
-                    else:
-                        sel_tipos = []
-                        
-                with c3:
-                    opcoes_motivo = set()
-                    if "Motivo de Contato" in df.columns:
-                        opcoes_motivo.update(df["Motivo de Contato"].dropna().astype(str).unique())
-                    if "Motivo 2 (Se houver)" in df.columns:
-                        opcoes_motivo.update(df["Motivo 2 (Se houver)"].dropna().astype(str).unique())
-                    
-                    if opcoes_motivo:
-                        sel_motivos = st.multiselect("🎯 Motivo:", sorted(list(opcoes_motivo)))
-                    else:
-                        sel_motivos = []
-                        
-                with c4:
-                    if "Status do atendimento" in df.columns:
-                        status_unicos = sorted(df["Status do atendimento"].dropna().astype(str).unique())
-                        sel_status = st.multiselect("🚦 Status:", status_unicos)
-                    else:
-                        sel_status = []
-    
-                with c5:
-                    sel_tem_ticket = st.multiselect("🎫 Tem Ticket?", ["Sim", "Não"])
-    
-                with c6:
-                    if "Versão do aplicativo" in df.columns:
-                        versoes_unicas = sorted(df["Versão do aplicativo"].dropna().astype(str).unique())
-                        sel_versao = st.multiselect("📱 Versão:", versoes_unicas)
-                    else:
-                        sel_versao = []
-                        
-                with c_emp:
-                    empresas_unicas = sorted(df["Empresa"].astype(str).unique())
-                    sel_empresa = st.multiselect("🏢 Empresa:", empresas_unicas)
-                    
-                with c_tam:
-                    tamanhos_unicos = sorted(df["Tamanho da Empresa"].astype(str).unique())
-                    sel_tamanho = st.multiselect("📏 Tamanho:", tamanhos_unicos)
-    
-                aplicar = st.form_submit_button("Aplicar Filtros")
-    
-            df_view = df.copy()
-        
-        # Nova regra para aplicar o filtro da equipe
-        if sel_equipes:
-            df_view = df_view[df_view["Equipe"].isin(sel_equipes)]
-            
-        if sel_agentes:
-            df_view = df_view[df_view["Atendente"].isin(sel_agentes)]
-            
-        if sel_tipos:
-            df_view = df_view[df_view["Tipo de Atendimento"].isin(sel_tipos)]
-            
-        if sel_motivos:
-            condicao1 = df_view["Motivo de Contato"].isin(sel_motivos) if "Motivo de Contato" in df_view.columns else pd.Series(False, index=df_view.index)
-            condicao2 = df_view["Motivo 2 (Se houver)"].isin(sel_motivos) if "Motivo 2 (Se houver)" in df_view.columns else pd.Series(False, index=df_view.index)
-            df_view = df_view[condicao1 | condicao2]
-            
-        if sel_status:
-            df_view = df_view[df_view["Status do atendimento"].isin(sel_status)]
-
-        # Aplica o filtro de ticket
-        if sel_tem_ticket:
-            df_view = df_view[df_view["Ticket Backoffice"].isin(sel_tem_ticket)]
-        
-        if sel_versao:
-            df_view = df_view[df_view["Versão do aplicativo"].isin(sel_versao)]
-
-        if sel_empresa:
-            df_view = df_view[df_view["Empresa"].isin(sel_empresa)]
-            
-        if sel_tamanho:
-            df_view = df_view[df_view["Tamanho da Empresa"].isin(sel_tamanho)]
-
-        c_resumo, c_botao = st.columns([4, 1])
-        
-        with c_resumo:
-            st.caption(f"Exibindo **{len(df_view)}** conversas após os filtros.")
-            
-        with c_botao:
-            excel = gerar_excel_multias(df_view, cols_usuario)
-            st.download_button("📥 Baixar Excel", data=excel, file_name="relatorio_filtrado.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary", use_container_width=True)
-        
-        cols_display = ["ID", "Data", "Estado", "Equipe", "Atendente", "E-mail", "Empresa", "Tamanho da Empresa", "Link", "Tempo Resolução", "Ticket Backoffice", "ID do Ticket"] + cols_usuario
-        cols_existentes = [c for c in cols_display if c in df_view.columns]
-        
-        # Exibe a tabela filtrada
-        st.dataframe(
-            df_view[cols_existentes], 
-            use_container_width=True, 
-            hide_index=True,
-            column_config={
-                "Link": st.column_config.LinkColumn("Link", display_text="🔗 Abrir Conversa")
-            }
-        )
-        
-        st.divider()
-        
-        # Área de Análise com Inteligência Artificial
-        st.subheader("🤖 Analisar Conversa com IA")
-        st.write("Copie o ID de uma conversa da tabela acima e cole aqui para gerar um resumo inteligente.")
-        
-        col_id, col_btn = st.columns([2, 1])
-        with col_id:
-            ticket_id_input = st.text_input("ID da Conversa:")
-        
-        with col_btn:
-            # Espaçamento para alinhar o botão com o campo de texto
-            st.markdown("<br>", unsafe_allow_html=True)
-            analisar_btn = st.button("Gerar Análise", type="primary", use_container_width=True)
-            
-        if analisar_btn and ticket_id_input:
-            with st.spinner("Lendo histórico e chamando a IA..."):
-                texto_ticket = ler_conversa_completa(ticket_id_input)
-                
-                if not texto_ticket:
-                    st.error("Não foi possível ler o histórico dessa conversa. Verifique o ID.")
+            with c2:
+                if "Tipo de Atendimento" in df.columns:
+                    tipos_unicos = sorted(df["Tipo de Atendimento"].dropna().astype(str).unique())
+                    sel_tipos = st.multiselect("💬 Tipo:", tipos_unicos)
                 else:
-                    prompt = f"""Extraia as 8 informações solicitadas desta conversa de suporte. 
+                    sel_tipos = []
+                        
+            with c3:
+                opcoes_motivo = set()
+                if "Motivo de Contato" in df.columns:
+                    opcoes_motivo.update(df["Motivo de Contato"].dropna().astype(str).unique())
+                if "Motivo 2 (Se houver)" in df.columns:
+                    opcoes_motivo.update(df["Motivo 2 (Se houver)"].dropna().astype(str).unique())
+                    
+                if opcoes_motivo:
+                    sel_motivos = st.multiselect("🎯 Motivo:", sorted(list(opcoes_motivo)))
+                else:
+                    sel_motivos = []
+                        
+            with c4:
+                if "Status do atendimento" in df.columns:
+                    status_unicos = sorted(df["Status do atendimento"].dropna().astype(str).unique())
+                    sel_status = st.multiselect("🚦 Status:", status_unicos)
+                else:
+                    sel_status = []
+    
+            with c5:
+                sel_tem_ticket = st.multiselect("🎫 Tem Ticket?", ["Sim", "Não"])
+    
+            with c6:
+                if "Versão do aplicativo" in df.columns:
+                    versoes_unicas = sorted(df["Versão do aplicativo"].dropna().astype(str).unique())
+                    sel_versao = st.multiselect("📱 Versão:", versoes_unicas)
+                else:
+                    sel_versao = []
+                        
+            with c_emp:
+                empresas_unicas = sorted(df["Empresa"].astype(str).unique())
+                sel_empresa = st.multiselect("🏢 Empresa:", empresas_unicas)
+                    
+            with c_tam:
+                tamanhos_unicos = sorted(df["Tamanho da Empresa"].astype(str).unique())
+                sel_tamanho = st.multiselect("📏 Tamanho:", tamanhos_unicos)
+    
+            aplicar = st.form_submit_button("Aplicar Filtros")
+    
+        df_view = df.copy()
+        
+    # Nova regra para aplicar o filtro da equipe
+    if sel_equipes:
+        df_view = df_view[df_view["Equipe"].isin(sel_equipes)]
+            
+    if sel_agentes:
+        df_view = df_view[df_view["Atendente"].isin(sel_agentes)]
+            
+    if sel_tipos:
+        df_view = df_view[df_view["Tipo de Atendimento"].isin(sel_tipos)]
+            
+    if sel_motivos:
+        condicao1 = df_view["Motivo de Contato"].isin(sel_motivos) if "Motivo de Contato" in df_view.columns else pd.Series(False, index=df_view.index)
+        condicao2 = df_view["Motivo 2 (Se houver)"].isin(sel_motivos) if "Motivo 2 (Se houver)" in df_view.columns else pd.Series(False, index=df_view.index)
+        df_view = df_view[condicao1 | condicao2]
+            
+    if sel_status:
+        df_view = df_view[df_view["Status do atendimento"].isin(sel_status)]
+
+    # Aplica o filtro de ticket
+    if sel_tem_ticket:
+        df_view = df_view[df_view["Ticket Backoffice"].isin(sel_tem_ticket)]
+        
+    if sel_versao:
+        df_view = df_view[df_view["Versão do aplicativo"].isin(sel_versao)]
+
+    if sel_empresa:
+        df_view = df_view[df_view["Empresa"].isin(sel_empresa)]
+            
+    if sel_tamanho:
+        df_view = df_view[df_view["Tamanho da Empresa"].isin(sel_tamanho)]
+
+    c_resumo, c_botao = st.columns([4, 1])
+        
+    with c_resumo:
+        st.caption(f"Exibindo **{len(df_view)}** conversas após os filtros.")
+            
+    with c_botao:
+        excel = gerar_excel_multias(df_view, cols_usuario)
+        st.download_button("📥 Baixar Excel", data=excel, file_name="relatorio_filtrado.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary", use_container_width=True)
+        
+    cols_display = ["ID", "Data", "Estado", "Equipe", "Atendente", "E-mail", "Empresa", "Tamanho da Empresa", "Link", "Tempo Resolução", "Ticket Backoffice", "ID do Ticket"] + cols_usuario
+    cols_existentes = [c for c in cols_display if c in df_view.columns]
+        
+    # Exibe a tabela filtrada
+    st.dataframe(
+        df_view[cols_existentes], 
+        use_container_width=True, 
+        hide_index=True,
+        column_config={
+            "Link": st.column_config.LinkColumn("Link", display_text="🔗 Abrir Conversa")
+        }
+    )
+        
+    st.divider()
+        
+    # Área de Análise com Inteligência Artificial
+    st.subheader("🤖 Analisar Conversa com IA")
+    st.write("Copie o ID de uma conversa da tabela acima e cole aqui para gerar um resumo inteligente.")
+        
+    col_id, col_btn = st.columns([2, 1])
+    with col_id:
+        ticket_id_input = st.text_input("ID da Conversa:")
+        
+    with col_btn:
+        # Espaçamento para alinhar o botão com o campo de texto
+        st.markdown("<br>", unsafe_allow_html=True)
+        analisar_btn = st.button("Gerar Análise", type="primary", use_container_width=True)
+            
+    if analisar_btn and ticket_id_input:
+        with st.spinner("Lendo histórico e chamando a IA..."):
+            texto_ticket = ler_conversa_completa(ticket_id_input)
+                
+            if not texto_ticket:
+                st.error("Não foi possível ler o histórico dessa conversa. Verifique o ID.")
+            else:
+                prompt = f"""Extraia as 8 informações solicitadas desta conversa de suporte. 
 Não adicione nenhum texto além das respostas.
 
 Conversa:
@@ -1109,15 +1109,16 @@ Responda EXATAMENTE com este formato, linha por linha:
 * 🚨 **Nível de criticidade:** [preencha aqui]
 * 💡 **Oportunidade de melhoria:** [preencha aqui]"""
 
-                    resposta = chamar_gemini_seguro(prompt)
+                resposta = chamar_gemini_seguro(prompt)
                     
-                    # A tesoura ajustada para o novo formato com asterisco
-                    if "**Motivo do contato:**" in resposta:
-                        resposta = "* 🎯 **Motivo do contato:**" + resposta.split("**Motivo do contato:**")[-1]
+                # A tesoura ajustada para o novo formato com asterisco
+                if "**Motivo do contato:**" in resposta:
+                    resposta = "* 🎯 **Motivo do contato:**" + resposta.split("**Motivo do contato:**")[-1]
                     
-                    # Truque para forçar a quebra de linha e não deixar o texto grudado
-                    resposta = resposta.replace('\n', '\n\n')
+                # Truque para forçar a quebra de linha e não deixar o texto grudado
+                resposta = resposta.replace('\n', '\n\n')
                     
-                    st.success(f"Análise concluída para o ticket #{ticket_id_input}")
-                    with st.expander("Ver Resultado da Análise", expanded=True):
-                        st.info(resposta)
+                st.success(f"Análise concluída para o ticket #{ticket_id_input}")
+                with st.expander("Ver Resultado da Análise", expanded=True):
+                    st.info(resposta)
+
