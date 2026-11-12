@@ -1018,106 +1018,106 @@ if 'df_final' in st.session_state:
     
         df_view = df.copy()
         
-    # Nova regra para aplicar o filtro da equipe
-    if sel_equipes:
-        df_view = df_view[df_view["Equipe"].isin(sel_equipes)]
+        # Nova regra para aplicar o filtro da equipe
+        if sel_equipes:
+            df_view = df_view[df_view["Equipe"].isin(sel_equipes)]
             
-    if sel_agentes:
-        df_view = df_view[df_view["Atendente"].isin(sel_agentes)]
+        if sel_agentes:
+            df_view = df_view[df_view["Atendente"].isin(sel_agentes)]
             
-    if sel_tipos:
-        df_view = df_view[df_view["Tipo de Atendimento"].isin(sel_tipos)]
+        if sel_tipos:
+            df_view = df_view[df_view["Tipo de Atendimento"].isin(sel_tipos)]
             
-    if sel_motivos:
-        condicao1 = df_view["Motivo de Contato"].isin(sel_motivos) if "Motivo de Contato" in df_view.columns else pd.Series(False, index=df_view.index)
-        condicao2 = df_view["Motivo 2 (Se houver)"].isin(sel_motivos) if "Motivo 2 (Se houver)" in df_view.columns else pd.Series(False, index=df_view.index)
-        df_view = df_view[condicao1 | condicao2]
+        if sel_motivos:
+            condicao1 = df_view["Motivo de Contato"].isin(sel_motivos) if "Motivo de Contato" in df_view.columns else pd.Series(False, index=df_view.index)
+            condicao2 = df_view["Motivo 2 (Se houver)"].isin(sel_motivos) if "Motivo 2 (Se houver)" in df_view.columns else pd.Series(False, index=df_view.index)
+            df_view = df_view[condicao1 | condicao2]
             
-    if sel_status:
-        df_view = df_view[df_view["Status do atendimento"].isin(sel_status)]
+        if sel_status:
+            df_view = df_view[df_view["Status do atendimento"].isin(sel_status)]
 
-    # Aplica o filtro de ticket
-    if sel_tem_ticket:
-        df_view = df_view[df_view["Ticket Backoffice"].isin(sel_tem_ticket)]
+        # Aplica o filtro de ticket
+        if sel_tem_ticket:
+            df_view = df_view[df_view["Ticket Backoffice"].isin(sel_tem_ticket)]
         
-    if sel_versao:
-        df_view = df_view[df_view["Versão do aplicativo"].isin(sel_versao)]
+        if sel_versao:
+            df_view = df_view[df_view["Versão do aplicativo"].isin(sel_versao)]
 
-    if sel_empresa:
-        df_view = df_view[df_view["Empresa"].isin(sel_empresa)]
+        if sel_empresa:
+            df_view = df_view[df_view["Empresa"].isin(sel_empresa)]
             
-    if sel_tamanho:
-        df_view = df_view[df_view["Tamanho da Empresa"].isin(sel_tamanho)]
+        if sel_tamanho:
+            df_view = df_view[df_view["Tamanho da Empresa"].isin(sel_tamanho)]
 
-    c_resumo, c_botao = st.columns([4, 1])
+        c_resumo, c_botao = st.columns([4, 1])
         
-    with c_resumo:
-        st.caption(f"Exibindo **{len(df_view)}** conversas após os filtros.")
+        with c_resumo:
+            st.caption(f"Exibindo **{len(df_view)}** conversas após os filtros.")
             
-    with c_botao:
-        excel = gerar_excel_multias(df_view, cols_usuario)
-        st.download_button("📥 Baixar Excel", data=excel, file_name="relatorio_filtrado.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary", use_container_width=True)
+        with c_botao:
+            excel = gerar_excel_multias(df_view, cols_usuario)
+            st.download_button("📥 Baixar Excel", data=excel, file_name="relatorio_filtrado.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary", use_container_width=True)
         
-    cols_display = ["ID", "Data", "Estado", "Equipe", "Atendente", "E-mail", "Empresa", "Tamanho da Empresa", "Link", "Tempo Resolução", "Ticket Backoffice", "ID do Ticket"] + cols_usuario
-    cols_existentes = [c for c in cols_display if c in df_view.columns]
+        cols_display = ["ID", "Data", "Estado", "Equipe", "Atendente", "E-mail", "Empresa", "Tamanho da Empresa", "Link", "Tempo Resolução", "Ticket Backoffice", "ID do Ticket"] + cols_usuario
+        cols_existentes = [c for c in cols_display if c in df_view.columns]
         
-    # Exibe a tabela filtrada
-    st.dataframe(
-        df_view[cols_existentes], 
-        use_container_width=True, 
-        hide_index=True,
-        column_config={
-            "Link": st.column_config.LinkColumn("Link", display_text="🔗 Abrir Conversa")
-        }
-    )
+        # Exibe a tabela filtrada
+        st.dataframe(
+            df_view[cols_existentes], 
+            use_container_width=True, 
+            hide_index=True,
+            column_config={
+                "Link": st.column_config.LinkColumn("Link", display_text="🔗 Abrir Conversa")
+            }
+        )
         
-    st.divider()
+        st.divider()
         
-    # Área de Análise com Inteligência Artificial
-    st.subheader("🤖 Analisar Conversa com IA")
-    st.write("Copie o ID de uma conversa da tabela acima e cole aqui para gerar um resumo inteligente.")
+        # Área de Análise com Inteligência Artificial
+        st.subheader("🤖 Analisar Conversa com IA")
+        st.write("Copie o ID de uma conversa da tabela acima e cole aqui para gerar um resumo inteligente.")
         
-    col_id, col_btn = st.columns([2, 1])
-    with col_id:
-        ticket_id_input = st.text_input("ID da Conversa:")
+        col_id, col_btn = st.columns([2, 1])
+        with col_id:
+            ticket_id_input = st.text_input("ID da Conversa:")
         
-    with col_btn:
-        # Espaçamento para alinhar o botão com o campo de texto
-        st.markdown("<br>", unsafe_allow_html=True)
-        analisar_btn = st.button("Gerar Análise", type="primary", use_container_width=True)
+        with col_btn:
+            # Espaçamento para alinhar o botão com o campo de texto
+            st.markdown("<br>", unsafe_allow_html=True)
+            analisar_btn = st.button("Gerar Análise", type="primary", use_container_width=True)
             
-    if analisar_btn and ticket_id_input:
-        with st.spinner("Lendo histórico e chamando a IA..."):
-            texto_ticket = ler_conversa_completa(ticket_id_input)
+        if analisar_btn and ticket_id_input:
+            with st.spinner("Lendo histórico e chamando a IA..."):
+                texto_ticket = ler_conversa_completa(ticket_id_input)
                 
-            if not texto_ticket:
-                st.error("Não foi possível ler o histórico dessa conversa. Verifique o ID.")
-            else:
-                prompt = f"""Extraia as 8 informações solicitadas desta conversa de suporte. 
-Não adicione nenhum texto além das respostas.
+                if not texto_ticket:
+                    st.error("Não foi possível ler o histórico dessa conversa. Verifique o ID.")
+                else:
+                    prompt = f"""Extraia as 8 informações solicitadas desta conversa de suporte. 
+    Não adicione nenhum texto além das respostas.
 
-Conversa:
-{texto_ticket}
+    Conversa:
+    {texto_ticket}
 
-Responda EXATAMENTE com este formato, linha por linha:
-* 🎯 **Motivo do contato:** [preencha aqui]
-* 📌 **Quantos problemas relatados:** [preencha aqui]
-* 💭 **Principais dúvidas ou reclamações:** [preencha aqui]
-* 🛠️ **Ação do agente:** [preencha aqui]
-* 📞 **Finalizada por falta de contato?:** [preencha aqui]
-* 🤖 **Potencial para automação por bot?:** [preencha aqui]
-* 🚨 **Nível de criticidade:** [preencha aqui]
-* 💡 **Oportunidade de melhoria:** [preencha aqui]"""
+    Responda EXATAMENTE com este formato, linha por linha:
+    * 🎯 **Motivo do contato:** [preencha aqui]
+    * 📌 **Quantos problemas relatados:** [preencha aqui]
+    * 💭 **Principais dúvidas ou reclamações:** [preencha aqui]
+    * 🛠️ **Ação do agente:** [preencha aqui]
+    * 📞 **Finalizada por falta de contato?:** [preencha aqui]
+    * 🤖 **Potencial para automação por bot?:** [preencha aqui]
+    * 🚨 **Nível de criticidade:** [preencha aqui]
+    * 💡 **Oportunidade de melhoria:** [preencha aqui]"""
 
-                resposta = chamar_gemini_seguro(prompt)
+                    resposta = chamar_gemini_seguro(prompt)
                     
-                # A tesoura ajustada para o novo formato com asterisco
-                if "**Motivo do contato:**" in resposta:
-                    resposta = "* 🎯 **Motivo do contato:**" + resposta.split("**Motivo do contato:**")[-1]
+                    # A tesoura ajustada para o novo formato com asterisco
+                    if "**Motivo do contato:**" in resposta:
+                        resposta = "* 🎯 **Motivo do contato:**" + resposta.split("**Motivo do contato:**")[-1]
                     
-                # Truque para forçar a quebra de linha e não deixar o texto grudado
-                resposta = resposta.replace('\n', '\n\n')
+                    # Truque para forçar a quebra de linha e não deixar o texto grudado
+                    resposta = resposta.replace('\n', '\n\n')
                     
-                st.success(f"Análise concluída para o ticket #{ticket_id_input}")
-                with st.expander("Ver Resultado da Análise", expanded=True):
-                    st.info(resposta)
+                    st.success(f"Análise concluída para o ticket #{ticket_id_input}")
+                    with st.expander("Ver Resultado da Análise", expanded=True):
+                        st.info(resposta)
