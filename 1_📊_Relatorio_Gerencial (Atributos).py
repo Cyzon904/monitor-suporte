@@ -954,69 +954,69 @@ if 'df_final' in st.session_state:
                     st.plotly_chart(fig_tm, use_container_width=True)
             else: st.warning("Sem dados de tempo.")
 
-    if aba_selecionada == "📋 Dados":
-        with st.form("form_filtros_tabela"):
-            st.write("🔍 Filtros da Pesquisa")
-            
-            # Dividindo os filtros em duas linhas para não amontoar
-            c_eq, c1, c2, c3, c4 = st.columns(5)
-            c5, c6, c_emp, c_tam = st.columns(4)
-            
-            with c_eq:
-                equipes_unicas = sorted(df["Equipe"].astype(str).unique())
-                sel_equipes = st.multiselect("🏢 Equipe (ID):", equipes_unicas)
+        if aba_selecionada == "📋 Dados":
+            with st.form("form_filtros_tabela"):
+                st.write("🔍 Filtros da Pesquisa")
                 
-            with c1:
-                agentes_unicos = sorted(df["Atendente"].astype(str).unique())
-                sel_agentes = st.multiselect("👤 Analista:", agentes_unicos)
+                # Dividindo os filtros em duas linhas para não amontoar
+                c_eq, c1, c2, c3, c4 = st.columns(5)
+                c5, c6, c_emp, c_tam = st.columns(4)
                 
-            with c2:
-                if "Tipo de Atendimento" in df.columns:
-                    tipos_unicos = sorted(df["Tipo de Atendimento"].dropna().astype(str).unique())
-                    sel_tipos = st.multiselect("💬 Tipo:", tipos_unicos)
-                else:
-                    sel_tipos = []
+                with c_eq:
+                    equipes_unicas = sorted(df["Equipe"].astype(str).unique())
+                    sel_equipes = st.multiselect("🏢 Equipe (ID):", equipes_unicas)
                     
-            with c3:
-                opcoes_motivo = set()
-                if "Motivo de Contato" in df.columns:
-                    opcoes_motivo.update(df["Motivo de Contato"].dropna().astype(str).unique())
-                if "Motivo 2 (Se houver)" in df.columns:
-                    opcoes_motivo.update(df["Motivo 2 (Se houver)"].dropna().astype(str).unique())
-                
-                if opcoes_motivo:
-                    sel_motivos = st.multiselect("🎯 Motivo:", sorted(list(opcoes_motivo)))
-                else:
-                    sel_motivos = []
+                with c1:
+                    agentes_unicos = sorted(df["Atendente"].astype(str).unique())
+                    sel_agentes = st.multiselect("👤 Analista:", agentes_unicos)
                     
-            with c4:
-                if "Status do atendimento" in df.columns:
-                    status_unicos = sorted(df["Status do atendimento"].dropna().astype(str).unique())
-                    sel_status = st.multiselect("🚦 Status:", status_unicos)
-                else:
-                    sel_status = []
-
-            with c5:
-                sel_tem_ticket = st.multiselect("🎫 Tem Ticket?", ["Sim", "Não"])
-
-            with c6:
-                if "Versão do aplicativo" in df.columns:
-                    versoes_unicas = sorted(df["Versão do aplicativo"].dropna().astype(str).unique())
-                    sel_versao = st.multiselect("📱 Versão:", versoes_unicas)
-                else:
-                    sel_versao = []
+                with c2:
+                    if "Tipo de Atendimento" in df.columns:
+                        tipos_unicos = sorted(df["Tipo de Atendimento"].dropna().astype(str).unique())
+                        sel_tipos = st.multiselect("💬 Tipo:", tipos_unicos)
+                    else:
+                        sel_tipos = []
+                        
+                with c3:
+                    opcoes_motivo = set()
+                    if "Motivo de Contato" in df.columns:
+                        opcoes_motivo.update(df["Motivo de Contato"].dropna().astype(str).unique())
+                    if "Motivo 2 (Se houver)" in df.columns:
+                        opcoes_motivo.update(df["Motivo 2 (Se houver)"].dropna().astype(str).unique())
                     
-            with c_emp:
-                empresas_unicas = sorted(df["Empresa"].astype(str).unique())
-                sel_empresa = st.multiselect("🏢 Empresa:", empresas_unicas)
-                
-            with c_tam:
-                tamanhos_unicos = sorted(df["Tamanho da Empresa"].astype(str).unique())
-                sel_tamanho = st.multiselect("📏 Tamanho:", tamanhos_unicos)
-
-            aplicar = st.form_submit_button("Aplicar Filtros")
-
-        df_view = df.copy()
+                    if opcoes_motivo:
+                        sel_motivos = st.multiselect("🎯 Motivo:", sorted(list(opcoes_motivo)))
+                    else:
+                        sel_motivos = []
+                        
+                with c4:
+                    if "Status do atendimento" in df.columns:
+                        status_unicos = sorted(df["Status do atendimento"].dropna().astype(str).unique())
+                        sel_status = st.multiselect("🚦 Status:", status_unicos)
+                    else:
+                        sel_status = []
+    
+                with c5:
+                    sel_tem_ticket = st.multiselect("🎫 Tem Ticket?", ["Sim", "Não"])
+    
+                with c6:
+                    if "Versão do aplicativo" in df.columns:
+                        versoes_unicas = sorted(df["Versão do aplicativo"].dropna().astype(str).unique())
+                        sel_versao = st.multiselect("📱 Versão:", versoes_unicas)
+                    else:
+                        sel_versao = []
+                        
+                with c_emp:
+                    empresas_unicas = sorted(df["Empresa"].astype(str).unique())
+                    sel_empresa = st.multiselect("🏢 Empresa:", empresas_unicas)
+                    
+                with c_tam:
+                    tamanhos_unicos = sorted(df["Tamanho da Empresa"].astype(str).unique())
+                    sel_tamanho = st.multiselect("📏 Tamanho:", tamanhos_unicos)
+    
+                aplicar = st.form_submit_button("Aplicar Filtros")
+    
+            df_view = df.copy()
         
         # Nova regra para aplicar o filtro da equipe
         if sel_equipes:
