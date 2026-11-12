@@ -668,7 +668,7 @@ if 'df_final' in st.session_state:
                 top_mot = df_tam["Motivo de Contato"].value_counts().head(qtd_cross).index
                 base = df_tam[df_tam["Motivo de Contato"].isin(top_mot)]
                 tab = pd.crosstab(base["Motivo de Contato"], base[col_tam], normalize="columns") * 100
-                tab = tab[faixas]
+                tab = tab.reindex(columns=faixas, fill_value=0)
         
                 fig_heat = px.imshow(tab, text_auto=".0f", aspect="auto",
                                      labels=dict(color="% da faixa"),
@@ -1121,4 +1121,3 @@ Responda EXATAMENTE com este formato, linha por linha:
                 st.success(f"Análise concluída para o ticket #{ticket_id_input}")
                 with st.expander("Ver Resultado da Análise", expanded=True):
                     st.info(resposta)
-
