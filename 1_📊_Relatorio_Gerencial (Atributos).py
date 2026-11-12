@@ -954,7 +954,8 @@ if 'df_final' in st.session_state:
                     st.plotly_chart(fig_tm, use_container_width=True)
             else: st.warning("Sem dados de tempo.")
 
-    with st.form("form_filtros_tabela"):
+    if aba_selecionada == "📋 Dados":
+        with st.form("form_filtros_tabela"):
             st.write("🔍 Filtros da Pesquisa")
             
             # Dividindo os filtros em duas linhas para não amontoar
