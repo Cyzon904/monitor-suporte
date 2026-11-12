@@ -227,14 +227,17 @@ def process_data(conversas, mapping, admin_map):
         else:
             origem = "Receptiva (Cliente)"
             
-        # Tenta achar o ID do cliente atrelado à conversa
+                # Tenta achar o ID do cliente atrelado à conversa
+        contact_id = None
+        email_user, empresa_user, tamanho_user = "-", "-", None
+
         if c.get('contacts', {}).get('contacts'):
             contact_id = c['contacts']['contacts'][0].get('id')
         elif autor_tipo in ['user', 'lead', 'contact']:
             contact_id = author.get('id')
-            
+
         if contact_id:
-            email_user, empresa_user = get_user_and_company(contact_id)
+            email_user, empresa_user, tamanho_user = get_user_and_company(contact_id)
 
         # NOVA REGRA: Verifica se existe ticket de backoffice atrelado e pega o ID
         tem_ticket = "Não"
