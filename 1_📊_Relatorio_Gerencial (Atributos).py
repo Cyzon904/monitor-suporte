@@ -159,40 +159,47 @@ def fetch_conversations(start_date, end_date, team_ids=None, regra_mesclada="Inc
     return conversas
 
 @st.cache_data(ttl=86400, show_spinner=False)
-def get_company_name(company_id):
+def get_company_info(company_id):
+    padrao = {"Empresa": f"ID {company_id}", "Tamanho da Empresa": None}
     url = f"https://api.intercom.io/companies/{company_id}"
     try:
-        r = requests.get(url, headers=HEADERS)
+        r = requests.get(url, headers=HEADERS, timeout=15)
         if r.status_code == 200:
-            return r.json().get('name', f"ID {company_id}")
-    except:
+            d = r.json()
+            attrs = d.get("custom_attributes") or {}
+            return {
+                "Empresa": d.get("name") or padrao["Empresa"],
+                "Tamanho da Empresa": attrs.get("tamanho_da_empresa"),
+            }
+    except Exception:
         pass
-    return f"ID {company_id}"
+    return padrao
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_user_and_company(contact_id):
-    if not contact_id: 
-        return "-", "-"
-        
+    if not contact_id:
+        return "-", "-", None
     url = f"https://api.intercom.io/contacts/{contact_id}"
     try:
-        r = requests.get(url, headers=HEADERS)
+        r = requests.get(url, headers=HEADERS, timeout=15)
         if r.status_code == 200:
             d = r.json()
             email = d.get('email') or "-"
-            
-            empresa = "-"
+            empresa, tamanho = "-", None
             companies = d.get('companies', {}).get('data', [])
-            if companies:
-                comp_id = companies[0].get('id')
-                if comp_id:
-                    empresa = get_company_name(comp_id)
-                    
-            return email, empresa
-    except: 
+            if companies and companies[0].get('id'):
+                info = get_company_info(companies[0]['id'])
+                empresa, tamanho = info["Empresa"], info["Tamanho da Empresa"]
+            return email, empresa, tamanho
+    except Exception:
         pass
-        
-    return "-", "-"
+    return "-", "-", None
+
+def ordenar_faixas(valores):
+    def chave(v):
+        m = re.search(r"\d+", str(v))
+        return (0, int(m.group())) if m else (1, str(v))
+    return sorted(valores, key=chave)
 
 def process_data(conversas, mapping, admin_map):
     rows = []
@@ -267,7 +274,7 @@ def process_data(conversas, mapping, admin_map):
             "Estado": estado_pt,
             "Atendente": assignee_name,
             "E-mail": email_user,        # Nova linha
-            "Empresa": empresa_user,     # Nova linha
+            "Tamanho da Empresa": tamanho_user or "Sem informação",     # Nova linha
             "Link": link,
             "Tempo Resposta (seg)": time_reply_sec,
             "Tempo Resolução (seg)": time_close_sec,
@@ -560,14 +567,16 @@ if 'df_final' in st.session_state:
     if aba_selecionada == "🔀 Cruzamentos":
         qtd_cross = st.slider("Quantidade de itens no Ranking:", 5, 50, 10, key="slider_cross")
 
-        def plot_stack(df_in, x_col, color_col, title, limit=10):
+        def plot_stack(df_in, x_col, color_col, title, limit=10, ordem_cor=None):
             top_n = df_in[x_col].value_counts().head(limit).index.tolist()
             df_filtered = df_in[df_in[x_col].isin(top_n)]
             g = df_filtered.groupby([x_col, color_col]).size().reset_index(name='Qtd')
             g['Total'] = g.groupby(x_col)['Qtd'].transform('sum')
             g['Pct'] = g.apply(lambda x: f"{(x['Qtd']/x['Total']*100):.0f}%", axis=1)
             h_dyn = max(600, len(top_n) * 50) 
-            f = px.bar(g, y=x_col, x='Qtd', color=color_col, text='Pct', orientation='h', title=title, height=h_dyn)
+            f = px.bar(g, y=x_col, x='Qtd', color=color_col, text='Pct', orientation='h',
+               title=title, height=h_dyn,
+               category_orders={color_col: ordem_cor} if ordem_cor else None)
             f.update_layout(yaxis={'categoryorder':'total ascending'})
             return f
 
@@ -631,6 +640,39 @@ if 'df_final' in st.session_state:
                 st.info("Não há conversas no período com a versão do app e pelo menos um motivo preenchido.")
 
         st.divider()
+
+        st.divider()
+        st.subheader("🏢 Cruzamento: Motivos e Tamanho da Empresa")
+        
+        col_tam = "Tamanho da Empresa"
+        if col_tam in df.columns and "Motivo de Contato" in df.columns:
+            df_tam = df.dropna(subset=["Motivo de Contato"])
+            df_tam = df_tam[df_tam[col_tam] != "Sem informação"]
+        
+            if df_tam.empty:
+                st.info("Não há conversas com motivo e tamanho da empresa preenchidos.")
+            else:
+                faixas = ordenar_faixas(df_tam[col_tam].unique())
+        
+                st.plotly_chart(
+                    plot_stack(df_tam, "Motivo de Contato", col_tam,
+                               "5. Tamanho da Empresa por Motivo", qtd_cross, ordem_cor=faixas),
+                    use_container_width=True
+                )
+        
+                # Visão normalizada: % dos contatos de cada faixa que vão para cada motivo
+                top_mot = df_tam["Motivo de Contato"].value_counts().head(qtd_cross).index
+                base = df_tam[df_tam["Motivo de Contato"].isin(top_mot)]
+                tab = pd.crosstab(base["Motivo de Contato"], base[col_tam], normalize="columns") * 100
+                tab = tab[faixas]
+        
+                fig_heat = px.imshow(tab, text_auto=".0f", aspect="auto",
+                                     labels=dict(color="% da faixa"),
+                                     title="Peso de cada motivo dentro de cada faixa de tamanho (%)")
+                st.plotly_chart(fig_heat, use_container_width=True)
+        
+                st.caption("Conversas por faixa: " + " | ".join(
+                    f"{f}: {(df_tam[col_tam] == f).sum()}" for f in faixas))
         
         st.subheader("🔍 Investigação de Motivos (1 vs 2)")
         
