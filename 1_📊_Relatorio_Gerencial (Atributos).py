@@ -277,6 +277,7 @@ def process_data(conversas, mapping, admin_map):
             "Estado": estado_pt,
             "Atendente": assignee_name,
             "E-mail": email_user,        # Nova linha
+            "Empresa": empresa_user,
             "Tamanho da Empresa": tamanho_user or "Sem informação",     # Nova linha
             "Link": link,
             "Tempo Resposta (seg)": time_reply_sec,
@@ -953,10 +954,12 @@ if 'df_final' in st.session_state:
                     st.plotly_chart(fig_tm, use_container_width=True)
             else: st.warning("Sem dados de tempo.")
 
-    if aba_selecionada == "📋 Dados":
-        with st.form("form_filtros_tabela"):
+    with st.form("form_filtros_tabela"):
             st.write("🔍 Filtros da Pesquisa")
-            c_eq, c1, c2, c3, c4, c5, c6 = st.columns(7)
+            
+            # Dividindo os filtros em duas linhas para não amontoar
+            c_eq, c1, c2, c3, c4 = st.columns(5)
+            c5, c6, c_emp, c_tam = st.columns(4)
             
             with c_eq:
                 equipes_unicas = sorted(df["Equipe"].astype(str).unique())
@@ -1001,6 +1004,14 @@ if 'df_final' in st.session_state:
                     sel_versao = st.multiselect("📱 Versão:", versoes_unicas)
                 else:
                     sel_versao = []
+                    
+            with c_emp:
+                empresas_unicas = sorted(df["Empresa"].astype(str).unique())
+                sel_empresa = st.multiselect("🏢 Empresa:", empresas_unicas)
+                
+            with c_tam:
+                tamanhos_unicos = sorted(df["Tamanho da Empresa"].astype(str).unique())
+                sel_tamanho = st.multiselect("📏 Tamanho:", tamanhos_unicos)
 
             aplicar = st.form_submit_button("Aplicar Filtros")
 
@@ -1031,6 +1042,12 @@ if 'df_final' in st.session_state:
         if sel_versao:
             df_view = df_view[df_view["Versão do aplicativo"].isin(sel_versao)]
 
+        if sel_empresa:
+            df_view = df_view[df_view["Empresa"].isin(sel_empresa)]
+            
+        if sel_tamanho:
+            df_view = df_view[df_view["Tamanho da Empresa"].isin(sel_tamanho)]
+
         c_resumo, c_botao = st.columns([4, 1])
         
         with c_resumo:
@@ -1040,7 +1057,7 @@ if 'df_final' in st.session_state:
             excel = gerar_excel_multias(df_view, cols_usuario)
             st.download_button("📥 Baixar Excel", data=excel, file_name="relatorio_filtrado.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary", use_container_width=True)
         
-        cols_display = ["ID", "Data", "Estado", "Equipe", "Atendente", "E-mail", "Empresa", "Link", "Tempo Resolução", "Ticket Backoffice", "ID do Ticket"] + cols_usuario
+        cols_display = ["ID", "Data", "Estado", "Equipe", "Atendente", "E-mail", "Empresa", "Tamanho da Empresa", "Link", "Tempo Resolução", "Ticket Backoffice", "ID do Ticket"] + cols_usuario
         cols_existentes = [c for c in cols_display if c in df_view.columns]
         
         # Exibe a tabela filtrada
