@@ -327,7 +327,7 @@ def gerar_excel_multias(df, colunas_selecionadas):
 
         # --- A LISTA ATUALIZADA COM AS NOVAS COLUNAS ---
         cols_fixas = [
-            "ID", "Data", "Equipe", "Atendente", "E-mail", "Empresa", 
+            "ID", "Data", "Equipe", "Atendente", "E-mail", "Empresa", "Tamanho da Empresa", 
             "Estado", "Tempo Resposta", "Tempo Resolução", 
             "Ticket Backoffice", "ID do Ticket", "CSAT Nota", 
             "CSAT Comentario", "Link"
