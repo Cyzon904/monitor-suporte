@@ -160,7 +160,7 @@ def fetch_conversations(start_date, end_date, team_ids=None, regra_mesclada="Inc
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_company_info(company_id):
-    padrao = {"Empresa": f"ID {company_id}", "Tamanho da Empresa": None}
+    padrao = {"Empresa": f"ID {company_id}", "Tamanho da Empresa": None, "Segmento da Empresa": None}
     url = f"https://api.intercom.io/companies/{company_id}"
     try:
         r = requests.get(url, headers=HEADERS, timeout=15)
@@ -170,6 +170,7 @@ def get_company_info(company_id):
             return {
                 "Empresa": d.get("name") or padrao["Empresa"],
                 "Tamanho da Empresa": attrs.get("tamanho_da_empresa"),
+                "Segmento da Empresa": attrs.get("segmento_da_empresa"),
             }
     except Exception:
         pass
@@ -178,22 +179,43 @@ def get_company_info(company_id):
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_user_and_company(contact_id):
     if not contact_id:
-        return "-", "-", None
+        return "-", "-", None, None
     url = f"https://api.intercom.io/contacts/{contact_id}"
     try:
         r = requests.get(url, headers=HEADERS, timeout=15)
         if r.status_code == 200:
             d = r.json()
             email = d.get('email') or "-"
-            empresa, tamanho = "-", None
+            empresa, tamanho, segmento = "-", None, None
             companies = d.get('companies', {}).get('data', [])
             if companies and companies[0].get('id'):
                 info = get_company_info(companies[0]['id'])
-                empresa, tamanho = info["Empresa"], info["Tamanho da Empresa"]
-            return email, empresa, tamanho
+                empresa = info["Empresa"]
+                tamanho = info["Tamanho da Empresa"]
+                segmento = info["Segmento da Empresa"]
+            return email, empresa, tamanho, segmento
     except Exception:
         pass
-    return "-", "-", None
+    return "-", "-", None, None
+
+# Data a partir da qual o RevOps preenche porte/segmento em todas as conversas (pedido #638): 01/01/2026 00:00 (Brasília)
+DATA_INICIO_CAMPOS_CONVERSA = 1767236400  # 2026-01-01 03:00 UTC
+
+# Atributos de porte/segmento gravados NA CONVERSA (pedido #638: conversas desde 01/01/2026 e todas as novas).
+# A API pode devolver a chave pelo nome interno ou pelo rótulo, então aceitamos as duas formas.
+CHAVES_PORTE_CONVERSA = ["tamanho_empresa_conversa", "Tamanho empresa conversa"]
+CHAVES_SEGMENTO_CONVERSA = ["segmento_empresa_conversa", "Segmento empresa conversa"]
+
+def valor_preenchido(v):
+    return v is not None and not (isinstance(v, float) and pd.isna(v)) and str(v).strip() != ""
+
+def pegar_attr_conversa(attrs, chaves, mapping):
+    """Procura o atributo na conversa pelo nome interno e também pelo rótulo traduzido."""
+    for chave in chaves:
+        for k in (chave, mapping.get(chave)):
+            if k and valor_preenchido(attrs.get(k)):
+                return attrs.get(k)
+    return None
 
 def ordenar_faixas(valores):
     def chave(v):
@@ -229,7 +251,7 @@ def process_data(conversas, mapping, admin_map):
             
                 # Tenta achar o ID do cliente atrelado à conversa
         contact_id = None
-        email_user, empresa_user, tamanho_user = "-", "-", None
+        email_user, empresa_user, tamanho_emp, segmento_emp = "-", "-", None, None
 
         if c.get('contacts', {}).get('contacts'):
             contact_id = c['contacts']['contacts'][0].get('id')
@@ -237,7 +259,28 @@ def process_data(conversas, mapping, admin_map):
             contact_id = author.get('id')
 
         if contact_id:
-            email_user, empresa_user, tamanho_user = get_user_and_company(contact_id)
+            email_user, empresa_user, tamanho_emp, segmento_emp = get_user_and_company(contact_id)
+
+        # Porte e segmento: primeiro o campo da CONVERSA (conversas antigas),
+        # se estiver vazio usa o campo da EMPRESA (conversas a partir de 11/11)
+        attrs = c.get('custom_attributes') or {}
+        tamanho_conv = pegar_attr_conversa(attrs, CHAVES_PORTE_CONVERSA, mapping)
+        segmento_conv = pegar_attr_conversa(attrs, CHAVES_SEGMENTO_CONVERSA, mapping)
+
+        # De 01/01/2026 em diante, TODA conversa tem os campos preenchidos pelo RevOps (pedido #638).
+        # Se estiverem vazios é proposital (nunca foi cliente, sem classificação ou várias empresas),
+        # então NÃO completamos com a empresa. O campo da empresa só entra em conversas anteriores a 2026.
+        usa_empresa = c.get('created_at', 0) < DATA_INICIO_CAMPOS_CONVERSA
+
+        if valor_preenchido(tamanho_conv) or valor_preenchido(segmento_conv):
+            tamanho_user, segmento_user = tamanho_conv, segmento_conv
+            fonte_porte = "Conversa"
+        elif usa_empresa and (valor_preenchido(tamanho_emp) or valor_preenchido(segmento_emp)):
+            tamanho_user, segmento_user = tamanho_emp, segmento_emp
+            fonte_porte = "Empresa (antes de 2026)"
+        else:
+            tamanho_user, segmento_user = None, None
+            fonte_porte = "Sem informação"
 
         # NOVA REGRA: Verifica se existe ticket de backoffice atrelado e pega o ID
         tem_ticket = "Não"
@@ -278,7 +321,9 @@ def process_data(conversas, mapping, admin_map):
             "Atendente": assignee_name,
             "E-mail": email_user,        # Nova linha
             "Empresa": empresa_user,
-            "Tamanho da Empresa": tamanho_user or "Sem informação",     # Nova linha
+            "Tamanho da Empresa": tamanho_user if valor_preenchido(tamanho_user) else "Sem informação",
+            "Segmento da Empresa": segmento_user if valor_preenchido(segmento_user) else "Sem informação",
+            "Fonte Porte/Segmento": fonte_porte,
             "Link": link,
             "Tempo Resposta (seg)": time_reply_sec,
             "Tempo Resolução (seg)": time_close_sec,
@@ -291,8 +336,15 @@ def process_data(conversas, mapping, admin_map):
         }
         
         # O script original varre os atributos e traduz os nomes
-        attrs = c.get('custom_attributes', {})
+        # Não repete os campos de porte/segmento da conversa como colunas soltas (já viraram as colunas unificadas acima)
+        chaves_unificadas = set()
+        for chave in CHAVES_PORTE_CONVERSA + CHAVES_SEGMENTO_CONVERSA:
+            chaves_unificadas.add(chave)
+            if mapping.get(chave):
+                chaves_unificadas.add(mapping.get(chave))
         for key, value in attrs.items():
+            if key in chaves_unificadas:
+                continue
             nome_bonito = mapping.get(key)
             if nome_bonito: 
                 row[nome_bonito] = value
@@ -327,8 +379,8 @@ def gerar_excel_multias(df, colunas_selecionadas):
 
         # --- A LISTA ATUALIZADA COM AS NOVAS COLUNAS ---
         cols_fixas = [
-            "ID", "Data", "Equipe", "Atendente", "E-mail", "Empresa", "Tamanho da Empresa", 
-            "Estado", "Tempo Resposta", "Tempo Resolução", 
+            "ID", "Data", "Equipe", "Atendente", "E-mail", "Empresa", "Tamanho da Empresa",
+            "Segmento da Empresa", "Fonte Porte/Segmento", "Estado", "Tempo Resposta", "Tempo Resolução", 
             "Ticket Backoffice", "ID do Ticket", "CSAT Nota", 
             "CSAT Comentario", "Link"
         ]
@@ -677,6 +729,37 @@ if 'df_final' in st.session_state:
         
                 st.caption("Conversas por faixa: " + " | ".join(
                     f"{f}: {(df_tam[col_tam] == f).sum()}" for f in faixas))
+
+        st.divider()
+        st.subheader("🏷️ Cruzamento: Motivos e Segmento da Empresa")
+
+        col_seg = "Segmento da Empresa"
+        if col_seg in df.columns and "Motivo de Contato" in df.columns:
+            df_seg = df.dropna(subset=["Motivo de Contato"])
+            df_seg = df_seg[df_seg[col_seg] != "Sem informação"]
+
+            if df_seg.empty:
+                st.info("Não há conversas com motivo e segmento da empresa preenchidos.")
+            else:
+                segmentos = sorted(df_seg[col_seg].astype(str).unique())
+                st.plotly_chart(
+                    plot_stack(df_seg, "Motivo de Contato", col_seg,
+                               "6. Segmento da Empresa por Motivo", qtd_cross, ordem_cor=segmentos),
+                    use_container_width=True
+                )
+
+                top_mot_s = df_seg["Motivo de Contato"].value_counts().head(qtd_cross).index
+                base_s = df_seg[df_seg["Motivo de Contato"].isin(top_mot_s)]
+                tab_s = pd.crosstab(base_s["Motivo de Contato"], base_s[col_seg], normalize="columns") * 100
+                tab_s = tab_s.reindex(columns=segmentos, fill_value=0)
+
+                fig_heat_s = px.imshow(tab_s, text_auto=".0f", aspect="auto",
+                                       labels=dict(color="% do segmento"),
+                                       title="Peso de cada motivo dentro de cada segmento (%)")
+                st.plotly_chart(fig_heat_s, use_container_width=True)
+
+                st.caption("Conversas por segmento: " + " | ".join(
+                    f"{s}: {(df_seg[col_seg] == s).sum()}" for s in segmentos))
         
         st.subheader("🔍 Investigação de Motivos (1 vs 2)")
         
@@ -960,7 +1043,7 @@ if 'df_final' in st.session_state:
                 
             # Dividindo os filtros em duas linhas para não amontoar
             c_eq, c1, c2, c3, c4 = st.columns(5)
-            c5, c6, c_emp, c_tam = st.columns(4)
+            c5, c6, c_emp, c_tam, c_seg = st.columns(5)
                 
             with c_eq:
                 equipes_unicas = sorted(df["Equipe"].astype(str).unique())
@@ -1013,7 +1096,11 @@ if 'df_final' in st.session_state:
             with c_tam:
                 tamanhos_unicos = sorted(df["Tamanho da Empresa"].astype(str).unique())
                 sel_tamanho = st.multiselect("📏 Tamanho:", tamanhos_unicos)
-    
+
+            with c_seg:
+                segmentos_unicos = sorted(df["Segmento da Empresa"].astype(str).unique()) if "Segmento da Empresa" in df.columns else []
+                sel_segmento = st.multiselect("🏷️ Segmento:", segmentos_unicos)
+
             aplicar = st.form_submit_button("Aplicar Filtros")
     
         df_view = df.copy()
@@ -1049,6 +1136,9 @@ if 'df_final' in st.session_state:
         if sel_tamanho:
             df_view = df_view[df_view["Tamanho da Empresa"].isin(sel_tamanho)]
 
+        if sel_segmento:
+            df_view = df_view[df_view["Segmento da Empresa"].astype(str).isin(sel_segmento)]
+
         c_resumo, c_botao = st.columns([4, 1])
         
         with c_resumo:
@@ -1058,7 +1148,7 @@ if 'df_final' in st.session_state:
             excel = gerar_excel_multias(df_view, cols_usuario)
             st.download_button("📥 Baixar Excel", data=excel, file_name="relatorio_filtrado.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary", use_container_width=True)
         
-        cols_display = ["ID", "Data", "Estado", "Equipe", "Atendente", "E-mail", "Empresa", "Tamanho da Empresa", "Link", "Tempo Resolução", "Ticket Backoffice", "ID do Ticket"] + cols_usuario
+        cols_display = ["ID", "Data", "Estado", "Equipe", "Atendente", "E-mail", "Empresa", "Tamanho da Empresa", "Segmento da Empresa", "Fonte Porte/Segmento", "Link", "Tempo Resolução", "Ticket Backoffice", "ID do Ticket"] + cols_usuario
         cols_existentes = [c for c in cols_display if c in df_view.columns]
         
         # Exibe a tabela filtrada
