@@ -179,23 +179,25 @@ def get_company_info(company_id):
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_user_and_company(contact_id):
-    """Devolve o e-mail do contato e a lista de TODAS as empresas ligadas a ele."""
+    """Devolve e-mail, lista de TODAS as empresas, role (user/lead) e member_role (admin/member...) do contato."""
     if not contact_id:
-        return "-", []
+        return "-", [], None, None
     url = f"https://api.intercom.io/contacts/{contact_id}"
     try:
         r = requests.get(url, headers=HEADERS, timeout=15)
         if r.status_code == 200:
             d = r.json()
             email = d.get('email') or "-"
+            role = d.get('role')                                            # "user" ou "lead"
+            member_role = (d.get('custom_attributes') or {}).get('member_role')  # "admin", "member", ...
             empresas = []
             for comp in d.get('companies', {}).get('data', []):
                 if comp.get('id'):
                     empresas.append(get_company_info(comp['id']))
-            return email, empresas
+            return email, empresas, role, member_role
     except Exception:
         pass
-    return "-", []
+    return "-", [], None, None
 
 def escolher_empresa(empresas, tamanho_conv, segmento_conv):
     """
@@ -285,7 +287,7 @@ def process_data(conversas, mapping, admin_map):
             
                 # Tenta achar o ID do cliente atrelado à conversa
         contact_id = None
-        email_user, empresas_contato = "-", []
+        email_user, empresas_contato, role_contato, member_role = "-", [], None, None
 
         if c.get('contacts', {}).get('contacts'):
             contact_id = c['contacts']['contacts'][0].get('id')
@@ -293,7 +295,7 @@ def process_data(conversas, mapping, admin_map):
             contact_id = author.get('id')
 
         if contact_id:
-            email_user, empresas_contato = get_user_and_company(contact_id)
+            email_user, empresas_contato, role_contato, member_role = get_user_and_company(contact_id)
 
         # Porte e segmento gravados na CONVERSA (pedido #638)
         attrs = c.get('custom_attributes') or {}
@@ -367,6 +369,8 @@ def process_data(conversas, mapping, admin_map):
             "Atendente": assignee_name,
             "E-mail": email_user,        # Nova linha
             "Empresa": empresa_user,
+            "Tipo de Contato": role_contato if valor_preenchido(role_contato) else "Sem informação",   # user / lead
+            "Papel do Usuário": member_role if valor_preenchido(member_role) else "Sem informação",   # admin / member ...
             "Tamanho da Empresa": tamanho_user if valor_preenchido(tamanho_user) else "Sem informação",
             "Segmento da Empresa": segmento_user if valor_preenchido(segmento_user) else "Sem informação",
             "Fonte Porte/Segmento": fonte_porte,
@@ -427,7 +431,8 @@ def gerar_excel_multias(df, colunas_selecionadas):
 
         # --- A LISTA ATUALIZADA COM AS NOVAS COLUNAS ---
         cols_fixas = [
-            "ID", "Data", "Equipe", "Atendente", "E-mail", "Empresa", "Tamanho da Empresa",
+            "ID", "Data", "Equipe", "Atendente", "E-mail", "Tipo de Contato", "Papel do Usuário",
+            "Empresa", "Tamanho da Empresa",
             "Segmento da Empresa", "Fonte Porte/Segmento", "Várias Empresas?",
             "Empresas Vinculadas (porte)", "Estado", "Tempo Resposta", "Tempo Resolução", 
             "Ticket Backoffice", "ID do Ticket", "CSAT Nota", 
@@ -1153,6 +1158,14 @@ if 'df_final' in st.session_state:
             with c_varias:
                 sel_varias = st.multiselect("🏢 Várias empresas?", ["Sim", "Não"])
 
+            c_role, c_member = st.columns(2)
+            with c_role:
+                roles_unicos = sorted(df["Tipo de Contato"].astype(str).unique()) if "Tipo de Contato" in df.columns else []
+                sel_role = st.multiselect("🙋 Tipo de Contato (user/lead):", roles_unicos)
+            with c_member:
+                members_unicos = sorted(df["Papel do Usuário"].astype(str).unique()) if "Papel do Usuário" in df.columns else []
+                sel_member = st.multiselect("🔑 Papel do Usuário (admin/member...):", members_unicos)
+
             aplicar = st.form_submit_button("Aplicar Filtros")
     
         df_view = df.copy()
@@ -1194,6 +1207,12 @@ if 'df_final' in st.session_state:
         if sel_varias and "Várias Empresas?" in df_view.columns:
             df_view = df_view[df_view["Várias Empresas?"].isin(sel_varias)]
 
+        if sel_role:
+            df_view = df_view[df_view["Tipo de Contato"].astype(str).isin(sel_role)]
+
+        if sel_member:
+            df_view = df_view[df_view["Papel do Usuário"].astype(str).isin(sel_member)]
+
         c_resumo, c_botao = st.columns([4, 1])
         
         with c_resumo:
@@ -1203,7 +1222,7 @@ if 'df_final' in st.session_state:
             excel = gerar_excel_multias(df_view, cols_usuario)
             st.download_button("📥 Baixar Excel", data=excel, file_name="relatorio_filtrado.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary", use_container_width=True)
         
-        cols_display = ["ID", "Data", "Estado", "Equipe", "Atendente", "E-mail", "Empresa", "Tamanho da Empresa", "Segmento da Empresa", "Fonte Porte/Segmento", "Várias Empresas?", "Empresas Vinculadas (porte)", "Link", "Tempo Resolução", "Ticket Backoffice", "ID do Ticket"] + cols_usuario
+        cols_display = ["ID", "Data", "Estado", "Equipe", "Atendente", "E-mail", "Tipo de Contato", "Papel do Usuário", "Empresa", "Tamanho da Empresa", "Segmento da Empresa", "Fonte Porte/Segmento", "Várias Empresas?", "Empresas Vinculadas (porte)", "Link", "Tempo Resolução", "Ticket Backoffice", "ID do Ticket"] + cols_usuario
         cols_existentes = [c for c in cols_display if c in df_view.columns]
         
         # Exibe a tabela filtrada
