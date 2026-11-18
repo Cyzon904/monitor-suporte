@@ -315,19 +315,33 @@ def process_data(conversas, mapping, admin_map):
             empresas_vinculadas = "-"
         varias_empresas = "Sim" if len(empresas_contato) > 1 else "Não"
 
-        # De 01/01/2026 em diante, TODA conversa tem os campos preenchidos pelo RevOps (pedido #638).
-        # Se estiverem vazios é proposital (nunca foi cliente, sem classificação ou várias empresas),
-        # então NÃO completamos com a empresa. O campo da empresa só entra em conversas anteriores a 2026.
-        usa_empresa = c.get('created_at', 0) < DATA_INICIO_CAMPOS_CONVERSA
+        # Regra do painel, campo a campo (porte e segmento separados):
+        # 1) Se a CONVERSA tem o valor, usa o da conversa.
+        # 2) Se não tem e o contato tem UMA empresa só, usa o da empresa (qualquer data).
+        # 3) Se não tem e o contato tem VÁRIAS empresas: antes de 2026 usa a empresa escolhida
+        #    (mesmo porte/segmento ou única ativa); em 2026 fica em branco, para não chutar.
+        uma_empresa = len(empresas_contato) == 1
+        antes_2026 = c.get('created_at', 0) < DATA_INICIO_CAMPOS_CONVERSA
+        pode_usar_empresa = uma_empresa or antes_2026
 
-        if valor_preenchido(tamanho_conv) or valor_preenchido(segmento_conv):
-            tamanho_user, segmento_user = tamanho_conv, segmento_conv
+        def resolver(valor_conv, valor_emp):
+            if valor_preenchido(valor_conv):
+                return valor_conv, "Conversa"
+            if pode_usar_empresa and valor_preenchido(valor_emp):
+                return valor_emp, "Empresa"
+            return None, None
+
+        tamanho_user, fonte_tam = resolver(tamanho_conv, tamanho_emp)
+        segmento_user, fonte_seg = resolver(segmento_conv, segmento_emp)
+
+        fontes = {f for f in (fonte_tam, fonte_seg) if f}
+        if fontes == {"Conversa"}:
             fonte_porte = "Conversa"
-        elif usa_empresa and (valor_preenchido(tamanho_emp) or valor_preenchido(segmento_emp)):
-            tamanho_user, segmento_user = tamanho_emp, segmento_emp
-            fonte_porte = "Empresa (antes de 2026)"
+        elif fontes == {"Empresa"}:
+            fonte_porte = "Empresa"
+        elif fontes == {"Conversa", "Empresa"}:
+            fonte_porte = "Conversa + Empresa"
         else:
-            tamanho_user, segmento_user = None, None
             fonte_porte = "Sem informação"
 
         # NOVA REGRA: Verifica se existe ticket de backoffice atrelado e pega o ID
