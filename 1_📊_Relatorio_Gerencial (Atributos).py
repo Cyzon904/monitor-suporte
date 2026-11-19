@@ -259,10 +259,28 @@ def ordenar_faixas(valores):
         return (0, int(m.group())) if m else (1, str(v))
     return sorted(valores, key=chave)
 
+def eh_ticket_interno(c):
+    """
+    Tickets de back-office (Financeiro, etc.) e de tracker também vêm na busca de conversas.
+    Eles não são atendimento: são criados pelo time a partir de uma conversa, que já é marcada
+    na coluna "Ticket Backoffice". Tickets de cliente (Customer ticket) continuam no painel.
+    """
+    if not c.get('ticket'):
+        return False
+    categoria = str((c.get('custom_attributes') or {}).get('Ticket category', '')).lower()
+    if 'back-office' in categoria or 'backoffice' in categoria or 'tracker' in categoria:
+        return True
+    # Sem categoria: considera interno quando foi aberto pelo time (não pelo cliente)
+    if not categoria:
+        return (c.get('source') or {}).get('delivered_as') == 'admin_initiated'
+    return False
+
 def process_data(conversas, mapping, admin_map):
     rows = []
     for c in conversas:
-        link = f"https://app.intercom.com/a/inbox/{WORKSPACE_ID}/inbox/conversation/{c['id']}"
+        if eh_ticket_interno(c):
+            continue
+        link =f"https://app.intercom.com/a/inbox/{WORKSPACE_ID}/inbox/conversation/{c['id']}"
         admin_id = c.get('admin_assignee_id')
         assignee_name = admin_map.get(str(admin_id), f"ID {admin_id}") if admin_id else "Não atribuído"
 
